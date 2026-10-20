@@ -29,6 +29,8 @@ import {
 import { navigationForUser, isNavigationActive } from "@shared/navigation";
 import { PERMISSION_CATALOG } from "@shared/access-control";
 import { normalizeDigits } from "@shared/display-format";
+import { ProductBrand } from "./ProductBrand";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
 const icons = {
   today: Clock3,
@@ -114,10 +116,7 @@ function WorkspaceLayout({
             <CalendarDays className="h-7 w-7 shrink-0 text-primary" />
             {expanded && (
               <div className="min-w-0 flex-1">
-                <p className="font-bold">إدارة دوام العمال</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  الجدولة والمتابعة في مكان واحد
-                </p>
+                <ProductBrand compact />
               </div>
             )}
             {isMobile && (
@@ -195,9 +194,11 @@ function WorkspaceLayout({
           <span className="truncate text-xs text-muted-foreground">
             {roleLabels[user.role]}
           </span>
+          <LanguageSwitcher />
         </header>
         <div className="executive-page mx-auto w-full max-w-[1600px] min-w-0 p-4 pb-12 lg:p-6">
           {children}
+          <footer className="product-footer"><ProductBrand compact /></footer>
         </div>
       </SidebarInset>
     </div>

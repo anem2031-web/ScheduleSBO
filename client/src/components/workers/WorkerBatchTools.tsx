@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useLanguage } from "@/lib/i18n";
+import { productBrand } from "@shared/brand";
 import { trpc } from "@/lib/trpc";
 import { parseWorkerImport, type WorkerImportRow } from "@/lib/worker-import";
 import { Button } from "@/components/ui/button";
@@ -66,6 +68,7 @@ export function WorkerBatchTools({
   selected: WorkerChoice[];
   onComplete: () => void;
 }) {
+  const { language } = useLanguage();
   const { user } = useAuth();
   const canImport = permits(user?.permissions ?? [], "workers:create");
   const canUpdate = permits(user?.permissions ?? [], "workers:update");
@@ -179,7 +182,7 @@ export function WorkerBatchTools({
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "قالب-العمال.csv";
+    anchor.download = `${productBrand(language).name}-قالب-العمال.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   };

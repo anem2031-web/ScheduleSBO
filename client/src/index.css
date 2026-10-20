@@ -121,6 +121,8 @@
   --brand-text: #f5f7fa;
   --brand-text-secondary: #c8d1de;
   --brand-text-muted: #98a4b5;
+  --brand-font-ar: "Cairo", system-ui, sans-serif;
+  --brand-font-en: "Inter", "Cairo", system-ui, sans-serif;
 
   /* ألوان الحالات */
   --status-success: #2ccb8c;
@@ -197,6 +199,17 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* One product wordmark shared by login, workspace and screen footers. */
+.product-brand { line-height: 1.6; }
+.product-brand[lang="ar"] { font-family: var(--brand-font-ar); }
+.product-brand[lang="en"] { font-family: var(--brand-font-en); }
+.product-brand-name { color: var(--brand-gold-light); font-size: 2rem; font-weight: 800; margin: 0; }
+.product-brand[lang="en"] .product-brand-name { font-weight: 700; letter-spacing: .06em; }
+.product-brand-description { color: var(--brand-text-secondary); font-size: .8rem; margin: .25rem 0 0; }
+.product-brand-compact .product-brand-name { font-size: 1.25rem; }
+.product-brand-compact .product-brand-description { font-size: .7rem; }
+.product-footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--brand-border); text-align: center; }
 
 html[dir="rtl"] body {
   font-family:

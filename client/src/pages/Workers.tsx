@@ -19,6 +19,7 @@ import {
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { ProductBrand } from "@/components/ProductBrand";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -460,9 +461,7 @@ export default function Workers() {
             </div>
 
             <div className="min-w-0">
-              <p className="mb-1 text-xs font-semibold text-[#D2AD61]">
-                إدارة القوى العاملة
-              </p>
+              <ProductBrand compact />
 
               <h1 className="executive-page-title">إدارة العمال</h1>
 

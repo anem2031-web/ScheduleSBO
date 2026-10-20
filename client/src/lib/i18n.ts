@@ -4,6 +4,7 @@
  */
 
 import { displayLanguage, normalizeDigits } from "@shared/display-format";
+import { productSignature } from "@shared/brand";
 
 export type Language = "ar" | "en" | "ur";
 
@@ -386,21 +387,34 @@ export function t(key: string, language: Language): string {
  */
 import React from "react";
 
+export function currentLanguage(): Language {
+  const saved = localStorage.getItem("language");
+  return saved === "en" || saved === "ur" ? saved : "ar";
+}
+
+const LANGUAGE_EVENT = "sam-language-change";
+function subscribeLanguage(onChange: () => void) {
+  window.addEventListener(LANGUAGE_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(LANGUAGE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
 export function useLanguage() {
-  const [language, setLanguage] = React.useState<Language>(() => {
-    const saved = localStorage.getItem("language");
-    return (saved as Language) || "ar";
-  });
+  const language = React.useSyncExternalStore(subscribeLanguage, currentLanguage, () => "ar" as Language);
 
   const changeLanguage = (lang: Language) => {
-    setLanguage(lang);
     localStorage.setItem("language", lang);
+    window.dispatchEvent(new Event(LANGUAGE_EVENT));
     document.documentElement.lang = displayLanguage(lang);
     document.documentElement.dir =
       lang === "ar" || lang === "ur" ? "rtl" : "ltr";
   };
 
   React.useEffect(() => {
+    document.title = productSignature(language);
     document.documentElement.lang = displayLanguage(language);
     document.documentElement.dir =
       language === "ar" || language === "ur" ? "rtl" : "ltr";

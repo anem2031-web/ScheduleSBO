@@ -27,6 +27,17 @@ const fixture = () =>
   }) as unknown as Payload;
 
 describe("weekly print roster readability and escaping", () => {
+  it("brands standalone print footers and titles with the selected export language", () => {
+    const arabic = buildWeeklyRosterHtml({ ...fixture(), language: "ar" });
+    const english = buildWeeklyRosterHtml({ ...fixture(), language: "en" });
+    expect(arabic).toContain("وَرْدِيَة — نظام إدارة الدوام والحضور");
+    expect(english).toContain("SAM — Scheduling &amp; Attendance Management");
+    expect(english).not.toContain("وَرْدِيَة");
+    expect(arabic).toContain("tfoot{display:table-footer-group}");
+    expect(english).toContain('class="brand-footer" dir="ltr" lang="en"');
+    expect(arabic).toContain("@font-face");
+    expect(arabic).not.toMatch(/[٠-٩۰-۹]/);
+  });
   it("isolates overnight time ranges from Arabic rest text", () => {
     const payload = fixture();
     payload.assignments = [
@@ -289,7 +300,7 @@ describe("weekly PNG pagination", () => {
     const click = vi.fn();
     const anchor = { click, href: "", download: "" };
     vi.stubGlobal("document", {
-      fonts: { ready: Promise.resolve() },
+      fonts: { ready: Promise.resolve(), load: () => Promise.resolve([]) },
       createElement: (tag: string) => (tag === "canvas" ? canvas : anchor),
     });
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:weekly-test");

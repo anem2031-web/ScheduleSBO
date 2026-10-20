@@ -16,6 +16,8 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import { displayLanguage } from "@shared/display-format";
+import { currentLanguage } from "./lib/i18n";
+import { productSignature } from "@shared/brand";
 
 import App from "./App";
 import { startLogin } from "./const";
@@ -32,8 +34,10 @@ import "./index.css";
  */
 const documentElement = document.documentElement;
 
-documentElement.lang = displayLanguage("ar");
-documentElement.dir = "rtl";
+const initialLanguage = currentLanguage();
+documentElement.lang = displayLanguage(initialLanguage);
+documentElement.dir = initialLanguage === "en" ? "ltr" : "rtl";
+document.title = productSignature(initialLanguage);
 documentElement.classList.add("dark");
 
 const queryClient = new QueryClient({

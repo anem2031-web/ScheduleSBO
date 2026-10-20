@@ -1,6 +1,8 @@
 import { WEEK_DAY_NAMES } from "@shared/weekly-schedule";
 import { normalizeDigits } from "@shared/display-format";
 import type { BoardAssignment, BoardWorker } from "./weekly-board-model";
+import { productBrand, productSignature, BRAND_PRINT_COLOR } from "@shared/brand";
+import { exportFontCss } from "./export-fonts";
 
 type Destination = {
   costCenterId?: number | null;
@@ -16,6 +18,8 @@ type Destination = {
 type ExportAssignment = BoardAssignment & Destination;
 type ExportWorker = BoardWorker & Destination;
 type ExportPayload = {
+  /** Frozen at export time, independently of later UI language changes. */
+  language?: string;
   center: string;
   weekStart: string;
   dates: string[];
@@ -198,6 +202,7 @@ function renderHtmlDay(day: ExportDay) {
 }
 
 export function buildWeeklyRosterHtml(payload: ExportPayload) {
+  const brand = productBrand(payload.language);
   const rows = buildWeeklyExportRows(payload);
   let group = "";
   const body = rows
@@ -210,7 +215,7 @@ export function buildWeeklyRosterHtml(payload: ExportPayload) {
       return `${heading}<tr><td><b>${escape(worker.name)}</b><br><small>${escape(worker.employeeId)}</small></td>${days.map((day) => `<td class="day-${day.kind}">${renderHtmlDay(day)}</td>`).join("")}</tr>`;
     })
     .join("");
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>جدول ${escape(payload.center)} ${escape(payload.weekStart)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:Tahoma,Arial,sans-serif;color:#172033;font-size:10px}h1{font-size:20px;margin-bottom:6px}p{margin:5px 0 15px}table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{border:1px solid #bcc7d5;padding:6px;text-align:center;line-height:1.7;overflow-wrap:anywhere}thead{display:table-header-group;background:#edf2f7}tr{break-inside:avoid}.period{padding:4px 0}.period+.period{border-top:1px dashed #bcc7d5}.period bdi{white-space:nowrap;font-size:11px;font-weight:bold}.period small{display:block}.phase{color:#475569}.group th{text-align:right;background:#e5edf9}.day-annual{background:#dcfce7}.day-leave{background:#e0f2fe}.day-rest{background:#fef9c3}.day-empty{color:#64748b}@media print{thead{display:table-header-group}}</style></head><body><h1>الجدول الأسبوعي — ${escape(payload.center)}</h1><p>الأحد <bdi dir="ltr">${escape(payload.weekStart)}</bdi> إلى السبت <bdi dir="ltr">${escape(payload.dates[6] ?? "")}</bdi> · الأوقات بتوقيت الرياض · (+1) اليوم التالي</p><table><thead><tr><th style="width:14%">العامل</th>${payload.dates.map((date, i) => `<th>${WEEK_DAY_NAMES[i]}<br><bdi dir="ltr">${escape(date)}</bdi></th>`).join("")}</tr></thead><tbody>${body || '<tr><td colspan="8">لا توجد بيانات لهذا المركز خلال الأسبوع</td></tr>'}</tbody></table><p>ساعات مخططة · مركز تكلفة واحد · مرتب حسب جهة الفترة الفعلية ثم الموقع والقسم · V27 = اليوم 27 من الإجازة السنوية</p></body></html>`;
+  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${escape(brand.name)} — جدول ${escape(payload.center)} ${escape(payload.weekStart)}</title><style>${exportFontCss()}@page{size:A4 landscape;margin:10mm}body{font-family:Cairo,Arial,sans-serif;color:#172033;font-size:10px}h1{font-size:20px;margin-bottom:6px}p{margin:5px 0 15px}table{width:100%;table-layout:fixed;border-collapse:collapse}th,td{border:1px solid #bcc7d5;padding:6px;text-align:center;line-height:1.7;overflow-wrap:anywhere}thead{display:table-header-group;background:#edf2f7}tr{break-inside:avoid}.period{padding:4px 0}.period+.period{border-top:1px dashed #bcc7d5}.period bdi{white-space:nowrap;font-size:11px;font-weight:bold}.period small{display:block}.phase{color:#475569}.group th{text-align:right;background:#e5edf9}.day-annual{background:#dcfce7}.day-leave{background:#e0f2fe}.day-rest{background:#fef9c3}.day-empty{color:#64748b}.brand-footer{padding-top:12px!important;border:0!important;color:${BRAND_PRINT_COLOR};font-family:${brand.font},Cairo,sans-serif;font-size:11px;font-weight:700;text-align:center}tfoot{display:table-footer-group}@media print{thead{display:table-header-group}}</style></head><body><h1>الجدول الأسبوعي — ${escape(payload.center)}</h1><p>الأحد <bdi dir="ltr">${escape(payload.weekStart)}</bdi> إلى السبت <bdi dir="ltr">${escape(payload.dates[6] ?? "")}</bdi> · الأوقات بتوقيت الرياض · (+1) اليوم التالي</p><table><thead><tr><th style="width:14%">العامل</th>${payload.dates.map((date, i) => `<th>${WEEK_DAY_NAMES[i]}<br><bdi dir="ltr">${escape(date)}</bdi></th>`).join("")}</tr></thead><tbody>${body || '<tr><td colspan="8">لا توجد بيانات لهذا المركز خلال الأسبوع</td></tr>'}</tbody><tfoot><tr><td colspan="8" class="brand-footer" dir="${brand.direction}" lang="${payload.language === "ar" || !payload.language ? "ar" : "en"}">${escape(productSignature(payload.language))}</td></tr></tfoot></table><p>ساعات مخططة · مركز تكلفة واحد · مرتب حسب جهة الفترة الفعلية ثم الموقع والقسم · V27 = اليوم 27 من الإجازة السنوية</p></body></html>`;
 }
 
 type TextLine = { text: string; direction: CanvasDirection; bold?: boolean };
@@ -228,7 +233,7 @@ const PNG_WIDTH = 2200,
   PNG_COL_WIDTH = 250;
 const PNG_LINE_HEIGHT = 29,
   PNG_HEADER_HEIGHT = 225,
-  PNG_FOOTER_HEIGHT = 65,
+  PNG_FOOTER_HEIGHT = 95,
   PNG_MAX_HEIGHT = 12_000;
 
 /** Break long words too; drawing never squeezes or drops source text. */
@@ -298,6 +303,8 @@ export function paginateWeeklyExportRows<
 }
 
 export async function exportWeeklyPng(payload: ExportPayload) {
+  const brand = productBrand(payload.language);
+  await document.fonts.load(`700 20px ${brand.font}`, brand.name);
   await document.fonts.ready;
   const canvas = document.createElement("canvas"),
     ctx = canvas.getContext("2d");
@@ -462,8 +469,13 @@ export async function exportWeeklyPng(payload: ExportPayload) {
     draw(
       `ساعات مخططة · ${pageIndex + 1}/${pages.length}`,
       PNG_WIDTH - PNG_MARGIN,
-      canvas.height - 24,
+      canvas.height - 58,
     );
+    ctx.direction = brand.direction;
+    ctx.textAlign = "center";
+    ctx.font = `bold 22px ${brand.font}, Cairo, Arial`;
+    ctx.fillStyle = BRAND_PRINT_COLOR;
+    draw(productSignature(payload.language), PNG_WIDTH / 2, canvas.height - 24);
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/png"),
     );
@@ -472,7 +484,7 @@ export async function exportWeeklyPng(payload: ExportPayload) {
       url = URL.createObjectURL(blob);
     link.href = url;
     link.download = normalizeDigits(
-      `جدول-${payload.center}-${payload.weekStart}${pages.length > 1 ? `-جزء-${pageIndex + 1}` : ""}.png`,
+      `${brand.name}-جدول-${payload.center}-${payload.weekStart}${pages.length > 1 ? `-جزء-${pageIndex + 1}` : ""}.png`,
     );
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);

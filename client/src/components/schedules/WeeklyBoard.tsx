@@ -42,6 +42,7 @@ import { useRosterModel } from "./useRosterModel";
 import { WeeklyRosterRow } from "./WeeklyRosterRow";
 import { useVirtualRoster } from "./useVirtualRoster";
 import { PeriodDestinationEditor } from "./PeriodDestinationEditor";
+import { useLanguage } from "@/lib/i18n";
 import { directPeriod, EMPTY_DESTINATIONS } from "./period-destination";
 export type { BoardWorker, BoardAssignment } from "./weekly-board-model";
 import type { BoardWorker, BoardAssignment } from "./weekly-board-model";
@@ -52,6 +53,7 @@ const PAGE_SIZE = 32;
 const EMPTY_ASSIGNMENTS: BoardAssignment[] = [];
 
 export function WeeklyBoard() {
+  const { language } = useLanguage();
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const [weekStart, setWeekStart] = useState(() => sundayOf(riyadhToday()));
@@ -300,7 +302,7 @@ export function WeeklyBoard() {
     setError("");
     try {
       const fullCenter = await utils.schedules.getWeeklyBoardExport.fetch({ weekStart, center });
-      const payload = { center, weekStart, dates, workers: fullCenter.workers, assignments: fullCenter.assignments };
+      const payload = { language, center, weekStart, dates, workers: fullCenter.workers, assignments: fullCenter.assignments };
       if (image) {
         const parts = await exportWeeklyPng(payload);
         setMessage(parts > 1 ? `تم تصدير جدول المركز على ${formatNumber(parts)} صور مرقمة.` : "تم تصدير صورة جدول المركز.");
@@ -665,7 +667,10 @@ export function WeeklyBoard() {
             ref={printFrame}
             title="معاينة طباعة الجدول الأسبوعي"
             srcDoc={printPreview?.html ?? ""}
-            onLoad={() => setPrintReady(true)}
+            onLoad={async () => {
+              await printFrame.current?.contentDocument?.fonts.ready;
+              setPrintReady(true);
+            }}
             className="min-h-0 w-full flex-1 rounded-md border bg-white"
           />
           <DialogFooter>

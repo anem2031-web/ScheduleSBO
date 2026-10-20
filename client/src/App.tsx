@@ -6,6 +6,7 @@ import { Route, Switch } from "wouter";
 
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { useLanguage } from "./lib/i18n";
 
 const AIAssistant = lazy(() => import("./pages/AIAssistant"));
 const Analytics = lazy(() => import("./pages/Analytics"));
@@ -91,6 +92,7 @@ function Router() {
 }
 
 function App() {
+  useLanguage();
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">

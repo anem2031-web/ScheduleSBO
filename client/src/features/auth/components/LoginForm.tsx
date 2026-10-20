@@ -7,6 +7,8 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { MIN_PASSWORD_LENGTH } from "@shared/access-control";
 import { useLanguage } from "@/lib/i18n";
+import { ProductBrand } from "@/components/ProductBrand";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 /**
  * نموذج تسجيل الدخول المحلي (Email + Password).
@@ -49,10 +51,9 @@ export function LoginForm() {
   return (
     <div className="w-full max-w-sm space-y-6">
       <div className="space-y-2 text-center">
+        <ProductBrand />
         <h1 className="text-2xl font-bold">{copy.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          منصة إدارة القوى العاملة
-        </p>
+        <div className="flex justify-center pt-2"><LanguageSwitcher /></div>
       </div>
 
       <div className="space-y-4">
