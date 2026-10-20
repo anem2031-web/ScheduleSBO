@@ -25,9 +25,15 @@ describe("dated worker scope for lists", () => {
     await getScopedWorkerIds({ id: 12, role: "supervisor" }, "2026-10-20");
     expect(parameters[0]).toEqual([12, "2026-10-20", "2026-10-20"]);
   });
-  it("intersects dated supervisor links with an explicit cost-center scope", async () => {
+  it("retains directly assigned workers whose home center differs from the supervisor's period center", async () => {
     database([[{ id: 101 }, { id: 102 }], [{ id: 1, code: "REST", nameAr: "مطاعم" }], [{ id: 102 }, { id: 103 }]]);
-    expect(await getScopedWorkerIdsInRange({ id: 12, role: "supervisor", accessScope: { costCenterIds: [1] } }, "2026-10-01", "2026-10-31")).toEqual([102]);
+    expect(await getScopedWorkerIdsInRange({ id: 12, role: "supervisor", accessScope: { costCenterIds: [1] } }, "2026-10-01", "2026-10-31")).toEqual([101, 102]);
+  });
+  it("keeps center-only restrictions for HR and denies empty supervisor scope", async () => {
+    database([[{ id: 1, code: "REST", nameAr: "مطاعم" }], [{ id: 102 }]]);
+    expect(await getScopedWorkerIdsInRange({ id: 14, role: "hr_admin", accessScope: { costCenterIds: [1] } }, "2026-10-01", "2026-10-31")).toEqual([102]);
+    database([[{ id: 101 }]]);
+    expect(await getScopedWorkerIdsInRange({ id: 12, role: "supervisor", accessScope: { costCenterIds: [] } }, "2026-10-01", "2026-10-31")).toEqual([]);
   });
   it("rejects an inverted interval before consulting the database", async () => {
     await expect(getScopedWorkerIdsInRange({ id: 12, role: "supervisor" }, "2026-10-31", "2026-10-01")).rejects.toMatchObject({ code: "BAD_REQUEST" });

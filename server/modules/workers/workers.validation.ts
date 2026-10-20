@@ -47,7 +47,7 @@ export const createWorkerSchema = z.object({
   departmentId: z.number().int().positive(),
   jobTitleId: z.number().int().positive(),
   primarySupervisorId: z.number().int().positive().optional(),
-  hireDate: z.string().date("تاريخ التعيين غير صحيح"),
+  hireDate: z.union([z.string().date("تاريخ التعيين غير صحيح"), z.literal("").transform(() => null), z.null()]).optional(),
   status: workerStatusSchema.default("active"),
 });
 

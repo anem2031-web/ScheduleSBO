@@ -3,6 +3,16 @@ import { createWorkerSchema, employeeIdSchema, updateWorkerSchema } from "./work
 import { workerPhoneNumberSchema } from "../../../shared/worker-phone";
 
 describe("worker identity validation", () => {
+  it("keeps missing hire dates unknown and permits setting or clearing them later", () => {
+    const worker = { employeeId: "E-1", nameAr: "عامل جديد", departmentId: 1, jobTitleId: 1 };
+    expect(createWorkerSchema.parse(worker).hireDate).toBeUndefined();
+    expect(createWorkerSchema.parse({ ...worker, hireDate: null }).hireDate).toBeNull();
+    expect(createWorkerSchema.parse({ ...worker, hireDate: "" }).hireDate).toBeNull();
+    expect(updateWorkerSchema.parse({ id: 1 })).not.toHaveProperty("hireDate");
+    expect(updateWorkerSchema.parse({ id: 1, hireDate: null }).hireDate).toBeNull();
+    expect(updateWorkerSchema.parse({ id: 1, hireDate: "2026-10-20" }).hireDate).toBe("2026-10-20");
+    expect(updateWorkerSchema.safeParse({ id: 1, hireDate: "2026-02-30" }).success).toBe(false);
+  });
   it("normalizes the employee number", () => {
     expect(employeeIdSchema.parse(" emp-001 ")).toBe("EMP-001");
   });

@@ -31,7 +31,10 @@ export async function getScopedWorkerIdsInRange(user:ScopeUser,fromDate=riyadhTo
   if(!keys.length)return [];
   const rows=await db.select({id:workerScheduleSettings.workerId}).from(workerScheduleSettings).where(inArray(workerScheduleSettings.branch,keys));
   const allowed=new Set(rows.map(row=>row.id));
-  ids=ids===undefined?Array.from(allowed):ids.filter(id=>allowed.has(id));
+  // A direct supervisor link grants access to the shared worker's card even
+  // when their home center belongs to the other operating period. Destination
+  // and period writes still enforce this supervisor's allowed cost centers.
+  if(user.role!=="supervisor")ids=ids===undefined?Array.from(allowed):ids.filter(id=>allowed.has(id));
  }
  return ids;
 }

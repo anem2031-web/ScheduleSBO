@@ -90,7 +90,7 @@ const createEmptyForm = (): WorkerForm => ({
   departmentId: "",
   jobTitleId: "",
   primarySupervisorId: "",
-  hireDate: new Date().toISOString().slice(0, 10),
+  hireDate: "",
   status: "active",
 });
 
@@ -126,7 +126,8 @@ function getStatusClass(status: WorkerStatus) {
   }
 }
 
-function formatDate(value: Date | string) {
+function formatDate(value: Date | string | null | undefined) {
+  if (!value) return "غير محدد";
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -318,7 +319,7 @@ export default function Workers() {
       primarySupervisorId: currentAssignment
         ? String(currentAssignment.supervisorId)
         : "",
-      hireDate: new Date(worker.hireDate).toISOString().slice(0, 10),
+      hireDate: worker.hireDate ? new Date(worker.hireDate).toISOString().slice(0, 10) : "",
       status: worker.status,
     });
 
@@ -396,7 +397,7 @@ export default function Workers() {
 
       jobTitleId: Number(form.jobTitleId),
 
-      hireDate: form.hireDate,
+      hireDate: form.hireDate || null,
       status: form.status,
     };
 
@@ -1052,10 +1053,9 @@ export default function Workers() {
                 <SelectContent className={selectContentClassName}><SelectItem value="none">غير محدد</SelectItem>{(referenceQuery.data?.locations ?? []).map(location => <SelectItem key={location.id} value={String(location.id)}>{normalizeDigits(location.nameAr)}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
-            <Field label="تاريخ التعيين" required>
+            <Field label="تاريخ التعيين (اختياري)">
               <Input
                 type="date"
-                required
                 value={form.hireDate}
                 onChange={(event) =>
                   setForm((current) => ({

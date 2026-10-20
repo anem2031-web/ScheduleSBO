@@ -294,7 +294,7 @@ export const workers = mysqlTable(
     jobTitleId: int("jobTitleId").notNull(),
     departmentId: int("departmentId").notNull(),
     primarySupervisorId: int("primarySupervisorId"),
-    hireDate: date("hireDate").notNull(),
+    hireDate: date("hireDate"),
     status: mysqlEnum("status", ["active", "inactive", "on_leave", "terminated"])
       .default("active")
       .notNull(),
@@ -312,6 +312,13 @@ export const workers = mysqlTable(
 
 export type Worker = typeof workers.$inferSelect;
 export type InsertWorker = typeof workers.$inferInsert;
+
+/** Identity documents are isolated from worker DTOs and supervisor-facing queries. */
+export const workerPrivateIdentifiers = mysqlTable("worker_private_identifiers", {
+  workerId: int("workerId").primaryKey().references(() => workers.id),
+  nationalId: varchar("nationalId", { length: 20 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
 
 /**
  * جدول بيانات الأجر للعامل

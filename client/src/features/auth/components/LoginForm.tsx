@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { Loader2, Lock, Mail } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { MIN_PASSWORD_LENGTH } from "@shared/access-control";
 import { useLanguage } from "@/lib/i18n";
@@ -26,6 +26,12 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  useEffect(() => setErrorMessage(null), [language]);
+  const accountHelp = {
+    ar: "لا تملك حسابًا؟ تواصل مع مسؤول النظام لإنشاء حساب لك.",
+    en: "Need an account? Contact your system administrator to create one.",
+    ur: "اکاؤنٹ نہیں ہے؟ اکاؤنٹ بنانے کے لیے سسٹم ایڈمنسٹریٹر سے رابطہ کریں۔",
+  }[language];
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
@@ -49,7 +55,7 @@ export function LoginForm() {
   };
 
   return (
-    <div className="w-full max-w-sm space-y-6">
+    <div className="w-full max-w-sm space-y-6" dir={language === "en" ? "ltr" : "rtl"}>
       <div className="space-y-2 text-center">
         <ProductBrand />
         <h1 className="text-2xl font-bold">{copy.title}</h1>
@@ -119,7 +125,7 @@ export function LoginForm() {
       </div>
 
       <p className="text-center text-xs text-muted-foreground">
-        لا تملك حسابًا؟ تواصل مع مسؤول النظام لإنشاء حساب لك.
+        {accountHelp}
       </p>
     </div>
   );

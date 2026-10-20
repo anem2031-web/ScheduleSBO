@@ -83,7 +83,7 @@ export function WorkerBatchTools({
   const [hours, setHours] = useState("");
   const [restDay, setRestDay] = useState("");
   const [branch, setBranch] = useState("");
-  const [hireDate, setHireDate] = useState(localDate);
+  const [hireDate, setHireDate] = useState("");
   const utils = trpc.useUtils();
   const reference = trpc.workers.referenceData.useQuery(undefined, {
     enabled: !!mode,
@@ -246,7 +246,7 @@ export function WorkerBatchTools({
             phoneNumber: row.phoneNumber,
             departmentId: Number(departmentId),
             jobTitleId: Number(jobTitleId),
-            hireDate,
+            hireDate: hireDate || null,
             status: "active",
           });
           state.workerId = worker.id;
@@ -515,7 +515,7 @@ export function WorkerBatchTools({
             </div>
             {mode === "import" && (
               <div className="space-y-2">
-                <Label>تاريخ التعيين للمجموعة</Label>
+                <Label>تاريخ التعيين للمجموعة (اختياري)</Label>
                 <Input
                   type="date"
                   value={hireDate}

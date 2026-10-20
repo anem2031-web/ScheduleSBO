@@ -333,7 +333,7 @@ export const workersRouter = router({
         const worker = await db.insertWorker({
           ...input,
           employeeId,
-          hireDate: parseHireDate(input.hireDate),
+          hireDate: input.hireDate ? parseHireDate(input.hireDate) : null,
           isActive:
             input.status !== "terminated" && input.status !== "inactive",
         });
@@ -386,7 +386,7 @@ export const workersRouter = router({
         ...rawChanges,
         ...(hireDate !== undefined
           ? {
-              hireDate: parseHireDate(hireDate),
+              hireDate: hireDate ? parseHireDate(hireDate) : null,
             }
           : {}),
       };
