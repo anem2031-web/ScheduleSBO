@@ -80,13 +80,13 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
             {ownerName && <div className="mt-1 break-words">{normalizeDigits(ownerName)}</div>}
           </div>;
         })}
-        {(total > 0 || (!rest && worker.requiredDailyMinutes !== null)) && (
+        {(total > 0 || (!rest && cell.required !== null)) && (
           <p
-            className={`py-1 text-center text-xs ${worker.requiredDailyMinutes !== null && total > worker.requiredDailyMinutes ? "font-semibold text-amber-800 dark:text-amber-300" : "text-muted-foreground"}`}
+            className={`py-1 text-center text-xs ${cell.required !== null && total > cell.required ? "font-semibold text-amber-800 dark:text-amber-300" : "text-muted-foreground"}`}
           >
             {hours(total)}
-            {worker.requiredDailyMinutes !== null && !rest
-              ? ` · ${total <= worker.requiredDailyMinutes ? `متبقي ${hours(worker.requiredDailyMinutes - total)}` : `زيادة مخططة ${hours(total - worker.requiredDailyMinutes)}`}`
+            {cell.required !== null && !rest
+              ? ` · ${total <= cell.required ? `متبقي ${hours(cell.required - total)}` : `زيادة مخططة ${hours(total - cell.required)}`}`
               : ""}
           </p>
         )}

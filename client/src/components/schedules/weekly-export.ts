@@ -103,6 +103,17 @@ function describePeriod(
       task ? `المهمة: ${task}` : "",
       assignment.supervisorName ? `المشرف: ${assignment.supervisorName}` : "",
       assignment.breakMinutes ? `راحة ${assignment.breakMinutes}د` : "",
+      ...(worker.permissions ?? [])
+        .filter((permission) => permission.workDate === assignment.workDate)
+        .flatMap((permission) => {
+          const start = Math.max(operationalMinute(assignment.startTime), operationalMinute(permission.startTime));
+          const periodEnd = assignment.endTime.slice(0, 5) === "04:30" ? 1710 : operationalMinute(assignment.endTime);
+          const permissionEnd = permission.endTime.slice(0, 5) === "04:30" ? 1710 : operationalMinute(permission.endTime);
+          const end = Math.min(periodEnd, permissionEnd);
+          if (end <= start) return [];
+          const clock = (minute: number) => `${String(Math.floor(minute / 60) % 24).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}${minute >= 1440 ? " (+1)" : ""}`;
+          return [`استئذان ${clock(start)}–${clock(end)} · ${permission.mode === "excused" ? "معفى" : "يُعوّض"}`];
+        }),
     ].filter(Boolean),
   };
 }

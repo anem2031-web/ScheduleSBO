@@ -183,6 +183,7 @@ export function SimpleCatalogCard({
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      aria-label={`${item.isActive ? "تعطيل" : "تفعيل"} ${normalizeDigits(item.nameAr ?? "")}`}
                       className="text-xs"
                       disabled={!canManage}
                       onClick={() =>
@@ -200,6 +201,7 @@ export function SimpleCatalogCard({
                       size="sm"
                       variant="ghost"
                       className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                      aria-label={`حذف ${normalizeDigits(item.nameAr ?? "")}`}
                       onClick={() => setConfirmId(item.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -369,6 +371,7 @@ export function JobTitlesCard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      aria-label={`${item.isActive ? "تعطيل" : "تفعيل"} ${normalizeDigits(item.titleAr ?? "")}`}
                       className="text-xs"
                       disabled={!canManage}
                       onClick={() =>
@@ -386,6 +389,7 @@ export function JobTitlesCard() {
                       size="sm"
                       variant="ghost"
                       className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
+                      aria-label={`حذف المسمى ${normalizeDigits(item.titleAr ?? "")}`}
                       onClick={() => setConfirmId(item.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />

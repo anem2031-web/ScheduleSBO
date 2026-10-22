@@ -27,6 +27,31 @@ const fixture = () =>
   }) as unknown as Payload;
 
 describe("weekly print roster readability and escaping", () => {
+  it("prints approved permission only over the matching period and clips it to that destination", () => {
+    const payload = fixture();
+    payload.workers[0].permissions = [
+      { id: 9, workDate: "2026-10-18", startTime: "07:00", endTime: "09:00", minutes: 120, mode: "excused" },
+      { id: 10, workDate: "2026-10-19", startTime: "07:00", endTime: "08:00", minutes: 60, mode: "make_up" },
+    ];
+    payload.assignments = [
+      { workerId: 1, workDate: "2026-10-18", startTime: "06:00", endTime: "08:00" },
+      { workerId: 1, workDate: "2026-10-18", startTime: "16:00", endTime: "20:00" },
+      { workerId: 1, workDate: "2026-10-19", startTime: "06:00", endTime: "10:00" },
+    ] as Payload["assignments"];
+    const rows = buildWeeklyExportRows(payload);
+    expect(rows[0].days[0].periods[0].details).toContain("استئذان 07:00–08:00 · معفى");
+    expect(rows[0].days[0].periods[1].details).toEqual([]);
+    expect(buildWeeklyRosterHtml(payload)).toContain("استئذان 07:00–08:00 · يُعوّض");
+    expect(buildWeeklyRosterHtml(payload)).not.toContain("09:00");
+  });
+
+  it("preserves next-day permission notation at the operational boundary", () => {
+    const payload = fixture();
+    payload.workers[0].permissions = [{ id: 9, workDate: "2026-10-18", startTime: "00:30", endTime: "04:30", minutes: 240, mode: "excused" }];
+    payload.assignments = [{ workerId: 1, workDate: "2026-10-18", startTime: "22:00", endTime: "04:30" }] as Payload["assignments"];
+    expect(buildWeeklyRosterHtml(payload)).toContain("استئذان 00:30 (+1)–04:30 (+1) · معفى");
+  });
+
   it("brands standalone print footers and titles with the selected export language", () => {
     const arabic = buildWeeklyRosterHtml({ ...fixture(), language: "ar" });
     const english = buildWeeklyRosterHtml({ ...fixture(), language: "en" });

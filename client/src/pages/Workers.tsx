@@ -523,14 +523,14 @@ export default function Workers() {
           <div className="executive-kpi executive-card--highlight">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="executive-kpi-label">إجمالي العمال</p>
+                <p className="executive-kpi-label">{debouncedSearch ? "نتائج البحث" : "إجمالي العمال"}</p>
 
                 <p className="executive-kpi-value text-[#E6C982]">
                   {workersQuery.data?.total ?? 0}
                 </p>
 
                 <p className="mt-2 text-xs text-[#98A4B5]">
-                  إجمالي السجلات في النظام
+                  {debouncedSearch ? "إجمالي العمال المطابقين للبحث" : "إجمالي السجلات في النظام"}
                 </p>
               </div>
 
@@ -1171,7 +1171,7 @@ export default function Workers() {
                         key={supervisor.id}
                         value={String(supervisor.id)}
                       >
-                        {supervisor.name} ({supervisor.email})
+                        {supervisor.name}{supervisor.email ? ` (${supervisor.email})` : ""}
                       </SelectItem>
                     ))
                   )}

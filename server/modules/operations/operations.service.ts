@@ -3,6 +3,8 @@ import * as repo from "./operations.repository";
 import { hasPermission, ATTENDANCE_APPROVE } from "../../shared/rbac";
 import type { AuthorizedUser } from "../../shared/rbac";
 import { getScopedWorkerIds } from "../../shared/worker-scope";
+import { approvedAbsencesForWorkers, permissionOverlapMinutes, type ApprovedAbsence } from "../leaves/approved-absence";
+import { shiftInstant } from "../overtime/overtime.rules";
 
 type Viewer = Pick<AuthorizedUser, "id" | "role" | "permissions" | "accessScope" | "workerId">;
 const dailyRoles = ["admin", "hr_admin", "supervisor", "guard", "modifier"];
@@ -45,9 +47,10 @@ type CalendarRow = Awaited<ReturnType<typeof repo.dayCalendar>>[number];
 export function buildDailyRows(
   workerRows: WorkerRow[],
   punches: PunchRow[],
-  assignments: AssignmentRow[],
+  assignments: (Pick<AssignmentRow, "workerId" | "plannedMinutes"> & Partial<Pick<AssignmentRow, "startTime" | "endTime">>)[],
   date: string,
   calendar: CalendarRow[] = [],
+  absences: Map<number, ApprovedAbsence> = new Map(),
 ) {
   const weekday = new Date(date + "T00:00:00Z").getUTCDay();
   return workerRows.map((worker) => {
@@ -61,12 +64,22 @@ export function buildDailyRows(
     const completed = records.filter(
       (row) => row.checkInTime && row.checkOutTime,
     );
-    const plannedHours =
-      assignments
-        .filter((row) => row.workerId === worker.id)
-        .reduce((sum, row) => sum + row.plannedMinutes, 0) / 60;
+    const periods = assignments.filter((row) => row.workerId === worker.id);
+    const permissions = absences.get(worker.id)?.permissions ?? [];
+    const excused = absences.get(worker.id)?.excusedMinutesByDate.get(date) ?? 0;
+    const plannedHours = periods.reduce((sum, row) => sum + Math.max(0, row.plannedMinutes -
+      (row.startTime && row.endTime ? permissionOverlapMinutes(row.startTime, row.endTime, permissions) : 0)), 0) / 60;
     const requiredHours =
-      worker.requiredHours == null ? null : Number(worker.requiredHours);
+      worker.requiredHours == null ? null : Math.max(0, Number(worker.requiredHours) - excused / 60);
+    // A completed overtime record can also have arrived late. A single status
+    // cannot represent both; derive lateness from the punch and closest period.
+    const starts = periods.filter((row) => row.startTime).map((row) => shiftInstant(date, row.startTime!));
+    const isLate = records.some((row) => {
+      if (!row.checkInTime || !starts.length) return row.status === "late";
+      const instant = new Date(row.checkInTime).getTime();
+      const closest = starts.reduce((best, start) => Math.abs(start - instant) < Math.abs(best - instant) ? start : best);
+      return instant - closest >= 60_000;
+    });
     const calendarCodes = calendar
       .filter((row) => row.workerId === worker.id)
       .map((row) => row.code.toUpperCase());
@@ -98,7 +111,7 @@ export function buildDailyRows(
       isHolidayDay,
       attended,
       onSite,
-      isLate: records.some((row) => row.status === "late"),
+      isLate,
       actualHours:
         completed.length && completed.every((row) => row.actualHours !== null)
           ? completed.reduce((sum, row) => sum + Number(row.actualHours), 0)
@@ -130,7 +143,8 @@ export async function dailyOverview(viewer: Viewer, date: string) {
     repo.dayAssignments(date, ids),
     repo.dayCalendar(date, ids),
   ]);
-  const rows = buildDailyRows(workers, punches, assignments, date, calendar);
+  const absences = await approvedAbsencesForWorkers(workers.map((worker) => worker.id), date, date);
+  const rows = buildDailyRows(workers, punches, assignments, date, calendar, absences);
   return {
     rows,
     summary: {

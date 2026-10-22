@@ -9,6 +9,11 @@ vi.mock("./operations.repository", () => ({
   monthOvertimes: vi.fn(),
 }));
 import * as repo from "./operations.repository";
+vi.mock("../leaves/approved-absence", async (original) => ({
+  ...await original<typeof import("../leaves/approved-absence")>(),
+  approvedAbsencesForWorkers: vi.fn(),
+}));
+import { approvedAbsencesForWorkers } from "../leaves/approved-absence";
 import {
   assertDay,
   buildDailyRows,
@@ -39,7 +44,10 @@ const punch = {
   status: "present",
 } as any;
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(approvedAbsencesForWorkers).mockResolvedValue(new Map());
+});
 
 describe("daily operational scope", () => {
   it("rejects roles without operational access before querying data", async () => {
@@ -89,6 +97,24 @@ describe("daily operational scope", () => {
 });
 
 describe("daily hours have explicit meanings", () => {
+  it("keeps late arrival visible after overtime and matches the nearest split period", () => {
+    const periods = [
+      { workerId: 12, plannedMinutes: 240, startTime: "06:00", endTime: "10:00" },
+      { workerId: 12, plannedMinutes: 240, startTime: "16:00", endTime: "20:00" },
+    ];
+    const [late] = buildDailyRows([worker], [{ ...punch, status: "overtime", checkInTime: new Date("2026-10-18T03:15:00Z") }], periods, "2026-10-18");
+    const [earlyEvening] = buildDailyRows([worker], [{ ...punch, status: "overtime", checkInTime: new Date("2026-10-18T12:55:00Z") }], periods, "2026-10-18");
+    expect(late.isLate).toBe(true);
+    expect(earlyEvening.isLate).toBe(false);
+  });
+  it("reconciles excused and make-up permissions with required and planned hours", () => {
+    const permission = { id: 9, workDate: "2026-10-18", startTime: "07:00", endTime: "08:00", minutes: 60, mode: "excused" as const };
+    const periods = [{ workerId: 12, plannedMinutes: 300, startTime: "06:00", endTime: "11:00" }];
+    const [excused] = buildDailyRows([worker], [], periods, "2026-10-18", [], new Map([[12, { permissions: [permission], excusedMinutesByDate: new Map([["2026-10-18", 60]]) }]]));
+    const [makeup] = buildDailyRows([worker], [], periods, "2026-10-18", [], new Map([[12, { permissions: [{ ...permission, mode: "make_up" }], excusedMinutesByDate: new Map() }]]));
+    expect(excused).toMatchObject({ requiredHours: 8, plannedHours: 4, remainingToSchedule: 4 });
+    expect(makeup).toMatchObject({ requiredHours: 9, plannedHours: 4, remainingToSchedule: 5 });
+  });
   it("never turns planned hours into actual attendance", () => {
     const [row] = buildDailyRows(
       [worker],

@@ -98,6 +98,8 @@ export async function dayAssignments(date: string, ids?: number[]) {
     .select({
       workerId: shiftAssignments.workerId,
       plannedMinutes: shiftAssignments.plannedMinutes,
+      startTime: shiftAssignments.startTime,
+      endTime: shiftAssignments.endTime,
     })
     .from(shiftAssignments)
     .where(
