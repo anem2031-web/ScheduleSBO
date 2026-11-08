@@ -28,6 +28,7 @@ import * as scheduleService from "./schedules.service";
 import * as assignmentsService from "./assignments.service";
 import * as workerCardService from "./worker-card.service";
 import * as weeklyBoardService from "./weekly-board.service";
+import { sendTrialForPublishedPeriod, sendTrialProbe, trialConfig } from "./whatsapp-trial";
 import * as workerScope from "./worker-scope";
 import * as assignmentRepository from "./assignments.repository";
 import { ScheduleError } from "./schedules.service";
@@ -108,6 +109,28 @@ const dateStr = z
 const timeStr = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, "صيغة الوقت HH:MM");
 
 export const schedulesRouter = router({
+  getWhatsAppTrialStatus: protectedProcedure.query(({ ctx }) => {
+    requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية عرض إعدادات تجربة واتساب");
+    const config = trialConfig();
+    return {
+      ready: config.enabled && !!config.phoneId && !!config.token && config.recipients.size > 0,
+      recipients: config.recipients.size,
+      targets: Array.from(config.recipients).map((number, index) => ({ index, ending: number.slice(-4) })),
+      scheduleTemplateApproved: !!config.approvedTemplate,
+      webhookReady: !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && !!process.env.WHATSAPP_META_APP_SECRET,
+    };
+  }),
+  sendWhatsAppTrialProbe: protectedProcedure
+    .input(z.object({ recipientIndex: z.number().int().min(0).max(4) }))
+    .mutation(async ({ ctx, input }) => {
+      requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية إرسال تجربة واتساب");
+      try {
+        await sendTrialProbe(input.recipientIndex);
+        return { success: true, message: "أرسلت رسالة Meta التجريبية. تحقق من وصولها إلى الرقم المحدد." };
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذر إرسال رسالة التجربة" });
+      }
+    }),
   getWeeklyBoard: protectedProcedure
     .input(z.object({ weekStart: dateStr }))
     .query(async ({ ctx, input }) => {
@@ -269,11 +292,20 @@ export const schedulesRouter = router({
         "ليس لديك صلاحية نشر فترة الجدول",
       );
       try {
-        return await scheduleService.publishPeriod({
+        const period = await scheduleService.publishPeriod({
           periodId: input.periodId,
           publishedBy: ctx.user.id,
           actor: ctx.user,
         });
+        try {
+          return { ...period, whatsappTrial: await sendTrialForPublishedPeriod(input.periodId) };
+        } catch (error) {
+          console.error("WhatsApp trial delivery failed after period publication:", error instanceof Error ? error.message : "unknown error");
+          return { ...period, whatsappTrial: {
+            mode: "test" as const, eligible: 0, sent: 0, failed: 0, skipped: 0,
+            note: "نُشر الجدول، لكن تعذّر تشغيل إرسال واتساب التجريبي. راجع إعدادات الخادم.",
+          } };
+        }
       } catch (e) {
         toTRPC(e);
       }

@@ -11,6 +11,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { handleDailyLockdownCallback } from "../routers/scheduled-tasks";
 import { createApiDeliveryMiddleware } from "./api-delivery";
+import { registerWhatsAppWebhook } from "../modules/notifications/whatsapp-webhook";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,6 +36,7 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   app.use("/api", createApiDeliveryMiddleware());
+  registerWhatsAppWebhook(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

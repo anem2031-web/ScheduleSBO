@@ -105,13 +105,19 @@ export function WeeklyBoard() {
     permits(user?.permissions ?? [], "schedule:update") ||
     permits(user?.permissions ?? [], "schedule:create");
   const canApprove = permits(user?.permissions ?? [], "schedule:approve");
+  const whatsappTrial = trpc.schedules.getWhatsAppTrialStatus.useQuery(undefined, { enabled: canApprove });
+  const sendWhatsAppProbe = trpc.schedules.sendWhatsAppTrialProbe.useMutation({
+    onSuccess: (result) => { setError(""); setMessage(result.message); },
+    onError: (err) => setError(err.message),
+  });
   const canExport = permits(user?.permissions ?? [], "schedule:export");
   const period = data?.periods.find(
     (p) => p.startDate && p.status !== "cancelled",
   );
   const approve = trpc.schedules.publishPeriod.useMutation({
-    onSuccess: () => {
-      setMessage("تم اعتماد ونشر الجدول الأسبوعي");
+    onSuccess: (result) => {
+      const trial = result.whatsappTrial;
+      setMessage(`تم اعتماد ونشر الجدول الأسبوعي. ${trial.mode === "disabled" ? trial.note : `واتساب التجريبي: ${trial.eligible} رقم مطابق لقائمة التجربة، أُرسلت ${trial.sent} رسالة، وفشل ${trial.failed}. ${trial.note}`}`);
       utils.schedules.getWeeklyBoard.invalidate();
       utils.schedules.getWeeklyBoardPage.invalidate();
       utils.schedules.getWeeklyBoardExport.invalidate();
@@ -453,6 +459,17 @@ export function WeeklyBoard() {
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
           هذا الأسبوع مقفل أو مؤرشف. يمكنك مراجعته وتصديره؛ إعادة فتحه من صلاحية
           الإدارة.
+        </div>
+      )}
+      {canApprove && whatsappTrial.data && (
+        <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
+          واتساب التجريبي: {whatsappTrial.data.ready ? `جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
+          {whatsappTrial.data.ready && !whatsappTrial.data.scheduleTemplateApproved && " سيُرسل قالب Meta التجريبي دون تفاصيل الدوام إلى حين اعتماد قالب الجدول."}
+          {whatsappTrial.data.ready && <div className="mt-2 flex flex-wrap gap-2">
+            {whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
+              إرسال تجربة إلى الرقم المنتهي بـ{target.ending}
+            </Button>)}
+          </div>}
         </div>
       )}
       {isLoading ? (
