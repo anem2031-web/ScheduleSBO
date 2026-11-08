@@ -91,6 +91,7 @@ export function WeeklyBoard() {
     html: string;
   } | null>(null);
   const [printReady, setPrintReady] = useState(false);
+  const [showWhatsAppPreview, setShowWhatsAppPreview] = useState(false);
   const printFrame = useRef<HTMLIFrameElement>(null);
   const {
     data,
@@ -105,19 +106,33 @@ export function WeeklyBoard() {
     permits(user?.permissions ?? [], "schedule:update") ||
     permits(user?.permissions ?? [], "schedule:create");
   const canApprove = permits(user?.permissions ?? [], "schedule:approve");
+  const canSendWholeWhatsAppTrial = canApprove && user?.role !== "supervisor" && user?.role !== "worker" && (user?.role === "admin" || user?.accessScope == null);
   const whatsappTrial = trpc.schedules.getWhatsAppTrialStatus.useQuery(undefined, { enabled: canApprove });
   const sendWhatsAppProbe = trpc.schedules.sendWhatsAppTrialProbe.useMutation({
     onSuccess: (result) => { setError(""); setMessage(result.message); },
+    onError: (err) => setError(err.message),
+  });
+  const sendPublishedWhatsAppTrial = trpc.schedules.sendPublishedWhatsAppTrial.useMutation({
+    onSuccess: (result) => {
+      setError("");
+      setMessage(result.mode === "test"
+        ? `جدول واتساب التجريبي: قبلت Meta ${result.sent} طلب إرسال، وفشل ${result.failed}. ${result.note}`
+        : result.note);
+    },
     onError: (err) => setError(err.message),
   });
   const canExport = permits(user?.permissions ?? [], "schedule:export");
   const period = data?.periods.find(
     (p) => p.startDate && p.status !== "cancelled",
   );
+  const whatsAppPreview = trpc.schedules.getPublishedWhatsAppTrialPreview.useQuery(
+    { periodId: period?.id ?? 0 },
+    { enabled: showWhatsAppPreview && period?.status === "published" && canSendWholeWhatsAppTrial },
+  );
   const approve = trpc.schedules.publishPeriod.useMutation({
     onSuccess: (result) => {
       const trial = result.whatsappTrial;
-      setMessage(`تم اعتماد ونشر الجدول الأسبوعي. ${trial.mode === "disabled" ? trial.note : `واتساب التجريبي: ${trial.eligible} رقم مطابق لقائمة التجربة، أُرسلت ${trial.sent} رسالة، وفشل ${trial.failed}. ${trial.note}`}`);
+      setMessage(`تم اعتماد ونشر الجدول الأسبوعي. ${trial.mode === "test" ? `واتساب التجريبي: ${trial.eligible} رقم مطابق لقائمة التجربة، قبلت Meta ${trial.sent} طلب إرسال، وفشل ${trial.failed}. ${trial.note}` : trial.note}`);
       utils.schedules.getWeeklyBoard.invalidate();
       utils.schedules.getWeeklyBoardPage.invalidate();
       utils.schedules.getWeeklyBoardExport.invalidate();
@@ -177,6 +192,7 @@ export function WeeklyBoard() {
     setSelectedDates([]);
     setMessage("");
     setError("");
+    setShowWhatsAppPreview(false);
   };
   const changeOwner = (value: string) => {
     if (
@@ -463,15 +479,45 @@ export function WeeklyBoard() {
       )}
       {canApprove && whatsappTrial.data && (
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
-          واتساب التجريبي: {whatsappTrial.data.ready ? `جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
-          {whatsappTrial.data.ready && !whatsappTrial.data.scheduleTemplateApproved && " سيُرسل قالب Meta التجريبي دون تفاصيل الدوام إلى حين اعتماد قالب الجدول."}
-          {whatsappTrial.data.ready && <div className="mt-2 flex flex-wrap gap-2">
-            {whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
+          واتساب التجريبي: {whatsappTrial.data.ready ? `الربط جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
+          {whatsappTrial.data.ready && !whatsappTrial.data.scheduleTemplateApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن."}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {whatsappTrial.data.ready && whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
               إرسال تجربة إلى الرقم المنتهي بـ{target.ending}
             </Button>)}
-          </div>}
+            {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm" variant="outline" onClick={() => setShowWhatsAppPreview(true)}>
+              معاينة رسائل عمال التجربة
+            </Button>}
+            {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm"
+              disabled={!whatsappTrial.data.ready || !whatsappTrial.data.scheduleTemplateApproved || sendPublishedWhatsAppTrial.isPending}
+              onClick={() => {
+                if (window.confirm("إرسال جدول هذا الأسبوع المعتمد إلى عمال التجربة المسموح بهم؟ إذا أرسلته سابقًا فقد تصلهم نسخة أخرى."))
+                  sendPublishedWhatsAppTrial.mutate({ periodId: period.id });
+              }}>
+              {sendPublishedWhatsAppTrial.isPending ? "جارٍ إرسال جدول التجربة…" : "إرسال جدول التجربة المعتمد"}
+            </Button>}
+          </div>
         </div>
       )}
+      <Dialog open={showWhatsAppPreview} onOpenChange={setShowWhatsAppPreview}>
+        <DialogContent dir="rtl" className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>معاينة رسائل جدول التجربة</DialogTitle>
+            <DialogDescription>هذه معاينة من بيانات الأسبوع المعتمد، ولا ترسل رسائل. يظهر كل عامل برقم هاتفه المخفي جزئيًا.</DialogDescription>
+          </DialogHeader>
+          {whatsAppPreview.isLoading ? <p role="status">جارٍ تجهيز الرسائل…</p> : whatsAppPreview.error ? <p role="alert">{whatsAppPreview.error.message}</p> : <>
+            {!whatsAppPreview.data?.messages.length && <p>لا يوجد عامل في الأسبوع المعتمد برقم مطابق لقائمة التجربة. راجع أرقام العمال وإعدادات التجربة.</p>}
+            {whatsAppPreview.data?.messages.map((entry) => <section key={entry.workerId} className="space-y-2 rounded-lg border p-3">
+              <h3 className="font-semibold">{entry.name} · الرقم المنتهي بـ{entry.phoneEnding}</h3>
+              {entry.error ? <p role="alert" className="text-destructive">{entry.error}</p> : <table className="w-full text-sm">
+                <thead><tr className="border-b"><th className="p-2 text-right">اليوم</th><th className="p-2 text-right">التاريخ</th><th className="p-2 text-right">الدوام أو الإجازة</th></tr></thead>
+                <tbody>{WEEK_DAY_NAMES.map((name, index) => <tr key={name} className="border-b last:border-0"><td className="p-2">{name}</td><td className="p-2"><span dir="ltr">{entry.values?.[index * 2]}</span></td><td className="p-2">{entry.values?.[index * 2 + 1]}</td></tr>)}</tbody>
+              </table>}
+            </section>)}
+          </>}
+          <DialogFooter><Button variant="outline" onClick={() => setShowWhatsAppPreview(false)}>إغلاق المعاينة</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       {isLoading ? (
         <div className="flex justify-center gap-2 py-12">
           <Loader2 className="h-5 w-5 animate-spin" />

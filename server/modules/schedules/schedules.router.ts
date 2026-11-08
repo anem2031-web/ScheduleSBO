@@ -28,7 +28,7 @@ import * as scheduleService from "./schedules.service";
 import * as assignmentsService from "./assignments.service";
 import * as workerCardService from "./worker-card.service";
 import * as weeklyBoardService from "./weekly-board.service";
-import { sendTrialForPublishedPeriod, sendTrialProbe, trialConfig } from "./whatsapp-trial";
+import { previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, trialConfig } from "./whatsapp-trial";
 import * as workerScope from "./worker-scope";
 import * as assignmentRepository from "./assignments.repository";
 import { ScheduleError } from "./schedules.service";
@@ -76,6 +76,13 @@ function requireGlobalPeriod(user: rbac.AuthorizedUser) {
       message:
         "هذا الإجراء يشمل الأسبوع لجميع المراكز؛ يلزم حساب بصلاحية تغطي جميع المراكز",
     });
+}
+function requireWhatsAppGlobalApprover(user: rbac.AuthorizedUser) {
+  // A supervisor with a custom approval permission still owns only linked
+  // workers, even when no explicit cost-center scope has been configured.
+  if (user.role === "supervisor" || user.role === "worker")
+    throw new TRPCError({ code: "FORBIDDEN", message: "معاينة وإرسال جدول التجربة الكامل متاحان للإدارة المخولة بجميع العمال" });
+  requireGlobalPeriod(user);
 }
 async function assertAssignmentWrite(
   user: rbac.AuthorizedUser,
@@ -129,6 +136,33 @@ export const schedulesRouter = router({
         return { success: true, message: "أرسلت رسالة Meta التجريبية. تحقق من وصولها إلى الرقم المحدد." };
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذر إرسال رسالة التجربة" });
+      }
+    }),
+  sendPublishedWhatsAppTrial: protectedProcedure
+    .input(z.object({ periodId: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية إرسال جدول التجربة المعتمد");
+      // This sends the whole period, so a destination-scoped account must not
+      // trigger messages containing schedules outside its own scope.
+      requireWhatsAppGlobalApprover(ctx.user);
+      const period = await scheduleService.getPeriod(input.periodId);
+      if (period.status !== "published")
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اعتمد الأسبوع قبل إرسال جدوله" });
+      try {
+        return await sendTrialForPublishedPeriod(input.periodId, ctx.user);
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذر إرسال جدول التجربة" });
+      }
+    }),
+  getPublishedWhatsAppTrialPreview: protectedProcedure
+    .input(z.object({ periodId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية معاينة رسائل الجدول المعتمد");
+      requireWhatsAppGlobalApprover(ctx.user);
+      try {
+        return await previewTrialForPublishedPeriod(input.periodId);
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذرت معاينة رسائل الجدول" });
       }
     }),
   getWeeklyBoard: protectedProcedure
@@ -297,8 +331,13 @@ export const schedulesRouter = router({
           publishedBy: ctx.user.id,
           actor: ctx.user,
         });
+        if (ctx.user.role === "supervisor" || ctx.user.role === "worker" || (ctx.user.role !== "admin" && ctx.user.accessScope != null))
+          return { ...period, whatsappTrial: {
+            mode: "disabled" as const, eligible: 0, sent: 0, failed: 0, skipped: 0,
+            note: "نُشر الجدول. إرسال جدول التجربة الكامل متاح للإدارة المخولة بجميع العمال.",
+          } };
         try {
-          return { ...period, whatsappTrial: await sendTrialForPublishedPeriod(input.periodId) };
+          return { ...period, whatsappTrial: await sendTrialForPublishedPeriod(input.periodId, ctx.user) };
         } catch (error) {
           console.error("WhatsApp trial delivery failed after period publication:", error instanceof Error ? error.message : "unknown error");
           return { ...period, whatsappTrial: {

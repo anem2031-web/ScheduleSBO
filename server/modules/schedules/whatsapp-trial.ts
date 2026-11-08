@@ -1,11 +1,12 @@
-import { and, eq, inArray } from "drizzle-orm";
-import { schedulePeriods, shiftAssignments, workers } from "../../../drizzle/schema";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { dayTypes, requests, schedulePeriods, shiftAssignments, workerCalendar, workers, workerScheduleSettings } from "../../../drizzle/schema";
 import { normalizeWorkerPhone } from "../../../shared/worker-phone";
-import { addCalendarDays } from "../../../shared/weekly-schedule";
+import { addCalendarDays, isCalendarDate, sundayOf } from "../../../shared/weekly-schedule";
+import { operationalClockMinutes } from "../../../shared/operational-day";
 import { getDb } from "../../shared/db";
 
 export type TrialSendReport = {
-  mode: "disabled" | "test";
+  mode: "disabled" | "waiting" | "test";
   eligible: number;
   sent: number;
   failed: number;
@@ -40,24 +41,57 @@ export function trialConfig() {
   };
 }
 
-type ScheduleTemplateValues = { name: string; start: string; end: string; details: string };
+export type WeeklyTemplateInput = {
+  start: string;
+  end: string;
+  rows: Array<{ date: string; from: string; to: string }>;
+  weeklyRestDay?: number | null;
+  calendar?: Array<{ date: string; code: string; approved: boolean }>;
+  leaves?: Array<{ start: string; end: string; kind: "annual" | "sick" }>;
+};
 
-export function formatTrialSchedule(start: string, end: string, rows: Array<{ date: string; from: string; to: string }>): string {
-  const byDate = new Map<string, string[]>();
-  for (const row of rows) byDate.set(row.date, [...(byDate.get(row.date) ?? []), `${row.from.slice(0, 5)}–${row.to.slice(0, 5)}`]);
-  const lines: string[] = [];
-  for (let date = start; date <= end; date = addCalendarDays(date, 1)) {
-    lines.push(`${date}: ${byDate.get(date)?.join("، ") ?? "غير مجدول / Unscheduled"}`);
-    if (lines.length > 31) break;
+const calendarLabels: Record<string, string> = {
+  REST: "إجازة أسبوعية", REST_DAY: "إجازة أسبوعية", WEEKLY_REST: "إجازة أسبوعية",
+  ANNUAL_LEAVE: "إجازة سنوية", SICK_LEAVE: "إجازة مرضية",
+  HOLIDAY: "إجازة رسمية", PUBLIC_HOLIDAY: "إجازة رسمية",
+  LEAVE: "إجازة معتمدة", EMERGENCY_LEAVE: "إجازة طارئة",
+};
+
+/** Exact contract for wardia_weekly_schedule: Sunday date/time through Saturday date/time. */
+export function buildWeeklyTemplateValues(input: WeeklyTemplateInput): string[] {
+  if (!isCalendarDate(input.start) || !isCalendarDate(input.end) || sundayOf(input.start) !== input.start || addCalendarDays(input.start, 6) !== input.end)
+    throw new Error("قالب واتساب الأسبوعي يتطلب أسبوعًا كاملًا من الأحد إلى السبت");
+  const values: string[] = [];
+  for (let index = 0; index < 7; index++) {
+    const date = addCalendarDays(input.start, index);
+    const dayRows = input.rows.filter((row) => row.date === date)
+      .sort((left, right) => operationalClockMinutes(left.from) - operationalClockMinutes(right.from));
+    const leave = input.leaves?.find((item) => item.start <= date && item.end >= date);
+    const calendar = input.calendar?.find((item) => item.date === date && item.approved && calendarLabels[item.code.toUpperCase()]);
+    const absenceLabel = leave ? (leave.kind === "annual" ? "إجازة سنوية" : "إجازة مرضية")
+      : calendar ? calendarLabels[calendar.code.toUpperCase()]
+      : input.weeklyRestDay === index ? "إجازة أسبوعية" : undefined;
+    if (absenceLabel && dayRows.length) throw new Error(`توجد فترات عمل متعارضة مع إجازة العامل بتاريخ ${date}`);
+    const times = dayRows.map((row) => {
+      // Validate both clocks and keep one single-line parameter for all of this day's periods.
+      operationalClockMinutes(row.from);
+      operationalClockMinutes(row.to);
+      return `${row.from.slice(0, 5)} – ${row.to.slice(0, 5)}`;
+    }).join("، ");
+    values.push(`${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`, absenceLabel ?? (times || "لم يُحدد الدوام"));
   }
-  return lines.join("\n");
+  return values;
 }
 
-export async function sendTrialTemplate(to: string, schedule?: ScheduleTemplateValues): Promise<boolean> {
+export async function sendTrialTemplate(to: string, schedule?: string[]): Promise<boolean> {
   const config = trialConfig();
   if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to)) return false;
   if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم Meta التجريبي غير صالح");
-  const useScheduleTemplate = !!config.approvedTemplate && !!schedule;
+  // A schedule must never fall back to the fixed hello_world connectivity probe.
+  if (schedule && !config.approvedTemplate) return false;
+  if (schedule && (schedule.length !== 14 || schedule.some((value) => !value.trim() || /[\r\n\t]/.test(value))))
+    throw new Error("قالب الجدول يتطلب 14 قيمة نصية غير فارغة، كل قيمة في سطر واحد");
+  const useScheduleTemplate = !!schedule;
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
@@ -68,7 +102,7 @@ export async function sendTrialTemplate(to: string, schedule?: ScheduleTemplateV
       template: useScheduleTemplate
         ? {
           name: config.approvedTemplate, language: { code: "ar" },
-          components: [{ type: "body", parameters: [schedule!.name, schedule!.start, schedule!.end, schedule!.details].map((text) => ({ type: "text", text })) }],
+          components: [{ type: "body", parameters: schedule!.map((text) => ({ type: "text", text })) }],
         }
         : { name: "hello_world", language: { code: "en_US" } },
     }),
@@ -87,11 +121,8 @@ export async function sendTrialProbe(recipientIndex: number): Promise<void> {
   await sendTrialTemplate(target);
 }
 
-/** Only approved-period workers whose phone is explicitly allowlisted can receive a test message. */
-export async function sendTrialForPublishedPeriod(periodId: number): Promise<TrialSendReport> {
+async function prepareTrialForPublishedPeriod(periodId: number) {
   const config = trialConfig();
-  const unavailable = !config.enabled || !config.phoneId || !config.token || !config.recipients.size;
-  if (unavailable) return { mode: "disabled", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال واتساب التجريبي غير مفعّل" };
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [period] = await db.select({ startDate: schedulePeriods.startDate, endDate: schedulePeriods.endDate, status: schedulePeriods.status })
@@ -100,31 +131,84 @@ export async function sendTrialForPublishedPeriod(periodId: number): Promise<Tri
   if (period.status !== "published") throw new Error("لا تُرسل التجربة قبل اعتماد الأسبوع");
   const dateKey = (value: Date | string) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
   const start = dateKey(period.startDate), end = dateKey(period.endDate);
-  const rows = await db.select({ id: workers.id, phone: workers.phoneNumber, name: workers.nameAr,
-    workDate: shiftAssignments.workDate, startTime: shiftAssignments.startTime, endTime: shiftAssignments.endTime })
-    .from(shiftAssignments)
-    .innerJoin(workers, eq(workers.id, shiftAssignments.workerId))
-    .where(and(eq(shiftAssignments.periodId, periodId), inArray(shiftAssignments.status, [...ACTIVE_ASSIGNMENTS]), eq(workers.isActive, true)));
-  const unique = new Map<number, { phone: string | null; name: string; rows: Array<{ date: string; from: string; to: string }> }>();
-  for (const row of rows) {
-    const item = unique.get(row.id) ?? { phone: recipientNumber(row.phone), name: row.name, rows: [] };
-    item.rows.push({ date: dateKey(row.workDate), from: row.startTime, to: row.endTime });
-    unique.set(row.id, item);
+  // Do not send a legacy partial/multi-week period through a fixed seven-day template.
+  buildWeeklyTemplateValues({ start, end, rows: [] });
+  const unique = new Map<number, { id: number; phone: string | null; name: string; rows: Array<{ date: string; from: string; to: string }> }>();
+  // Leave-only and incomplete workers have no assignment row. Start with active pilot
+  // workers so they can be previewed and approved leave can still produce a full week.
+  const pilotWorkers = await db.select({ id: workers.id, phone: workers.phoneNumber, name: workers.nameAr })
+    .from(workers).where(and(eq(workers.isActive, true), inArray(workers.status, ["active", "on_leave"])));
+  for (const worker of pilotWorkers) {
+    const phone = recipientNumber(worker.phone);
+    if (phone && config.recipients.has(phone)) unique.set(worker.id, { id: worker.id, phone, name: worker.name, rows: [] });
   }
-  const recipients = Array.from(new Map(Array.from(unique.values())
-    .filter((item): item is typeof item & { phone: string } => !!item.phone && config.recipients.has(item.phone))
-    .map((item) => [item.phone, item] as const)).values());
+  const ids = Array.from(unique.keys());
+  const [rows, settings, calendar, leaves] = ids.length ? await Promise.all([
+    db.select({ workerId: shiftAssignments.workerId, workDate: shiftAssignments.workDate, startTime: shiftAssignments.startTime, endTime: shiftAssignments.endTime })
+      .from(shiftAssignments).where(and(eq(shiftAssignments.periodId, periodId), inArray(shiftAssignments.workerId, ids), inArray(shiftAssignments.status, [...ACTIVE_ASSIGNMENTS]))),
+    db.select({ workerId: workerScheduleSettings.workerId, weeklyRestDay: workerScheduleSettings.weeklyRestDay })
+      .from(workerScheduleSettings).where(inArray(workerScheduleSettings.workerId, ids)),
+    db.select({ workerId: workerCalendar.workerId, date: workerCalendar.date, code: dayTypes.code,
+      approvedAt: workerCalendar.approvedAt, approvedBy: workerCalendar.approvedBy, requestId: workerCalendar.requestId, requestStatus: requests.status })
+      .from(workerCalendar).innerJoin(dayTypes, eq(dayTypes.id, workerCalendar.dayTypeId))
+      .leftJoin(requests, eq(requests.id, workerCalendar.requestId))
+      .where(and(inArray(workerCalendar.workerId, ids), gte(workerCalendar.date, new Date(`${start}T00:00:00Z`)), lte(workerCalendar.date, new Date(`${end}T00:00:00Z`)))),
+    db.select({ workerId: requests.workerId, startDate: requests.startDate, endDate: requests.endDate, kind: requests.leaveKind })
+      .from(requests).where(and(inArray(requests.workerId, ids), eq(requests.status, "approved"), inArray(requests.leaveKind, ["annual", "sick"]),
+        lte(requests.startDate, new Date(`${end}T00:00:00Z`)), gte(requests.endDate, new Date(`${start}T00:00:00Z`)))),
+  ]) : [[], [], [], []];
+  for (const row of rows) unique.get(row.workerId)?.rows.push({ date: dateKey(row.workDate), from: row.startTime, to: row.endTime });
+  const recipients = Array.from(unique.values())
+    .filter((item): item is typeof item & { phone: string } => !!item.phone && config.recipients.has(item.phone));
+  const messages = recipients.map((item) => {
+    try {
+      if (recipients.some((other) => other.id !== item.id && other.phone === item.phone))
+        throw new Error("رقم الهاتف مرتبط بأكثر من عامل؛ صحح الربط قبل إرسال جدول شخصي");
+      const values = buildWeeklyTemplateValues({
+        start, end, rows: item.rows, weeklyRestDay: settings.find((setting) => setting.workerId === item.id)?.weeklyRestDay,
+        calendar: calendar.filter((entry) => entry.workerId === item.id).map((entry) => ({ date: dateKey(entry.date), code: entry.code,
+          approved: entry.requestId != null ? entry.requestStatus === "approved" : entry.approvedBy != null && entry.approvedAt != null })),
+        leaves: leaves.filter((leave) => leave.workerId === item.id && leave.startDate && leave.endDate && (leave.kind === "annual" || leave.kind === "sick"))
+          .map((leave) => ({ start: dateKey(leave.startDate!), end: dateKey(leave.endDate!), kind: leave.kind as "annual" | "sick" })),
+      });
+      const missingDays = values.filter((value, index) => index % 2 === 1 && value === "لم يُحدد الدوام").length;
+      return { workerId: item.id, name: item.name, phone: item.phone, values,
+        error: missingDays ? `الجدول غير مكتمل: لم يُحدد الدوام في ${missingDays} أيام؛ لا يُرسل حتى يكتمل` : null };
+    } catch (error) {
+      return { workerId: item.id, name: item.name, phone: item.phone, values: null, error: error instanceof Error ? error.message : "تعذر تجهيز جدول العامل" };
+    }
+  });
+  return { messages, skipped: unique.size - recipients.length };
+}
+
+/** Read-only preview for the allowlisted workers; no access token or complete phone is returned. */
+export async function previewTrialForPublishedPeriod(periodId: number) {
+  const preview = await prepareTrialForPublishedPeriod(periodId);
+  return {
+    ...preview,
+    messages: preview.messages.map(({ phone, ...message }) => ({ ...message, phoneEnding: phone.slice(-4) })),
+  };
+}
+
+/** Only approved-period workers whose phone is explicitly allowlisted can receive a test message. */
+export async function sendTrialForPublishedPeriod(periodId: number, actor?: { role: string; accessScope?: unknown }): Promise<TrialSendReport> {
+  const config = trialConfig();
+  const unavailable = !config.enabled || !config.phoneId || !config.token || !config.recipients.size;
+  if (unavailable) return { mode: "disabled", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال واتساب التجريبي غير مفعّل" };
+  if (actor && (actor.role === "supervisor" || actor.role === "worker" || (actor.role !== "admin" && actor.accessScope != null)))
+    return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال جداول التجربة المتعددة متاح لمسؤول بصلاحية تغطي جميع المراكز" };
+  if (!config.approvedTemplate) return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "الجدول معتمد، وإرسال الورديات ينتظر اعتماد قالب Meta وضبطه. لم تُرسل رسالة الاختبار بدل الجدول." };
+  const prepared = await prepareTrialForPublishedPeriod(periodId);
   // The configured allowlist is capped at five even if a week contains hundreds of workers.
-  const results = await Promise.allSettled(recipients.map((item) => sendTrialTemplate(item.phone, {
-    name: item.name, start, end, details: formatTrialSchedule(start, end, item.rows),
-  })));
+  const results = await Promise.allSettled(prepared.messages.map(async (message) => {
+    if (!message.values || message.error) throw new Error(message.error ?? "تعذر تجهيز جدول العامل");
+    return sendTrialTemplate(message.phone, message.values);
+  }));
   const sent = results.filter((result) => result.status === "fulfilled" && result.value).length;
   const failed = results.length - sent;
   return {
-    mode: "test", eligible: recipients.length, sent, failed,
-    skipped: unique.size - recipients.length,
-    note: config.approvedTemplate
-      ? "أُرسلت تفاصيل الدوام بقالب الجدول المعتمد من Meta"
-      : "رسالة Meta التجريبية لا تحتوي على تفاصيل الدوام؛ يلزم اعتماد قالب الجدول قبل إرسال الورديات الفعلية",
+    mode: "test", eligible: prepared.messages.length, sent, failed,
+    skipped: prepared.skipped,
+    note: "نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم",
   };
 }
