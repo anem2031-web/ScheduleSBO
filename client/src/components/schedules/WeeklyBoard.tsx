@@ -116,7 +116,7 @@ export function WeeklyBoard() {
     onSuccess: (result) => {
       setError("");
       setMessage(result.mode === "test"
-        ? `جدول واتساب التجريبي: قبلت Meta ${result.sent} طلب إرسال، وفشل ${result.failed}. ${result.note}`
+        ? `واتساب التجريبي: قبلت Meta ${result.sent} طلب إرسال، وفشل ${result.failed}. ${result.note}`
         : result.note);
     },
     onError: (err) => setError(err.message),
@@ -480,7 +480,9 @@ export function WeeklyBoard() {
       {canApprove && whatsappTrial.data && (
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
           واتساب التجريبي: {whatsappTrial.data.ready ? `الربط جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
-          {whatsappTrial.data.ready && !whatsappTrial.data.scheduleTemplateApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن."}
+          {whatsappTrial.data.ready && (whatsappTrial.data.connectionTest
+            ? " وضع اختبار الاتصال مفعّل: اعتماد الأسبوع يرسل رسالة Meta التجريبية المعتمدة إلى عمال التجربة دون تفاصيل جدولهم."
+            : !whatsappTrial.data.scheduleTemplateApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن.")}
           <div className="mt-2 flex flex-wrap gap-2">
             {whatsappTrial.data.ready && whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
               إرسال تجربة إلى الرقم المنتهي بـ{target.ending}
@@ -489,12 +491,16 @@ export function WeeklyBoard() {
               معاينة رسائل عمال التجربة
             </Button>}
             {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm"
-              disabled={!whatsappTrial.data.ready || !whatsappTrial.data.scheduleTemplateApproved || sendPublishedWhatsAppTrial.isPending}
+              disabled={!whatsappTrial.data.ready || (!whatsappTrial.data.scheduleTemplateApproved && !whatsappTrial.data.connectionTest) || sendPublishedWhatsAppTrial.isPending}
               onClick={() => {
-                if (window.confirm("إرسال جدول هذا الأسبوع المعتمد إلى عمال التجربة المسموح بهم؟ إذا أرسلته سابقًا فقد تصلهم نسخة أخرى."))
+                if (window.confirm(whatsappTrial.data.connectionTest
+                  ? "إرسال رسالة Meta التجريبية لاختبار الاتصال إلى عمال التجربة المسموح بهم؟ الرسالة لا تحتوي على تفاصيل جدولهم. إذا أرسلتها سابقًا فقد تصلهم نسخة أخرى."
+                  : "إرسال جدول هذا الأسبوع المعتمد إلى عمال التجربة المسموح بهم؟ إذا أرسلته سابقًا فقد تصلهم نسخة أخرى."))
                   sendPublishedWhatsAppTrial.mutate({ periodId: period.id });
               }}>
-              {sendPublishedWhatsAppTrial.isPending ? "جارٍ إرسال جدول التجربة…" : "إرسال جدول التجربة المعتمد"}
+              {whatsappTrial.data.connectionTest
+                ? sendPublishedWhatsAppTrial.isPending ? "جارٍ إرسال اختبار الاتصال…" : "إرسال اختبار الاتصال لعمال التجربة"
+                : sendPublishedWhatsAppTrial.isPending ? "جارٍ إرسال جدول التجربة…" : "إرسال جدول التجربة المعتمد"}
             </Button>}
           </div>
         </div>

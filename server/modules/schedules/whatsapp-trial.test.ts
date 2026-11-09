@@ -16,9 +16,20 @@ function configure() {
   vi.stubEnv("WHATSAPP_TRIAL_RECIPIENTS", "+966570344919,+966550931212,+966502202734");
   vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "false");
   vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_NAME", "wardia_weekly_schedule");
+  vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "schedule");
 }
 
 describe("Meta test-number delivery guard", () => {
+  it("requires an explicit connection_test mode and keeps unknown modes on schedule behavior", () => {
+    configure();
+    expect(trialConfig().connectionTest).toBe(false);
+    vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "");
+    expect(trialConfig().connectionTest).toBe(false);
+    vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "test");
+    expect(trialConfig().connectionTest).toBe(false);
+    vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "connection_test");
+    expect(trialConfig().connectionTest).toBe(true);
+  });
   it("never calls Meta when disabled or recipient is outside the allowlist", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -137,8 +148,9 @@ describe("Meta test-number delivery guard", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("blocks sending an allowlisted worker with no assigned work or approved leave", async () => {
+  it.each(["schedule", "connection_test"])("blocks an incomplete allowlisted worker in %s mode", async (mode) => {
     configure();
+    vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", mode);
     vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
     const results: unknown[][] = [
       [{ startDate: "2026-11-08", endDate: "2026-11-14", status: "published" }],
@@ -155,6 +167,34 @@ describe("Meta test-number delivery guard", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await sendTrialForPublishedPeriod(5, { role: "admin" })).toMatchObject({ eligible: 1, failed: 1, sent: 0 });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("connection-test publication can use hello_world before schedule approval without sending worker data or 14 variables", async () => {
+    configure();
+    vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "connection_test");
+    const results: unknown[][] = [
+      [{ startDate: "2026-11-08", endDate: "2026-11-14", status: "published" }],
+      [{ id: 9, phone: "+966570344919", name: "عامل في إجازة" }],
+      [], [{ workerId: 9, weeklyRestDay: null }], [],
+      [{ workerId: 9, startDate: "2026-11-01", endDate: "2026-11-30", kind: "annual" }],
+    ];
+    mocks.getDb.mockResolvedValue({ select: () => {
+      const value = results.shift();
+      const query: any = { from: () => query, where: () => query, limit: () => query, innerJoin: () => query, leftJoin: () => query,
+        then: (resolve: any, reject: any) => Promise.resolve(value).then(resolve, reject) };
+      return query;
+    } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(trialConfig().approvedTemplate).toBe("");
+    const report = await sendTrialForPublishedPeriod(5, { role: "admin" });
+    expect(report).toMatchObject({ mode: "test", sent: 1, failed: 0, eligible: 1 });
+    expect(report.note).toContain("اختبار اتصال فقط");
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.template).toEqual({ name: "hello_world", language: { code: "en_US" } });
+    expect(payload.template).not.toHaveProperty("components");
+    expect(fetchMock.mock.calls[0][1].body).not.toContain("2026-11");
+    expect(fetchMock.mock.calls[0][1].body).not.toContain("عامل في إجازة");
   });
 });
 

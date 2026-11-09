@@ -33,6 +33,9 @@ export function trialConfig() {
   if (unique.length > 5) throw new Error("رقم Meta التجريبي يقبل خمسة مستلمين فقط");
   return {
     enabled,
+    // Only this exact opt-in enables the temporary hello_world publication test.
+    // Missing/unknown modes retain schedule behavior and never fall back silently.
+    connectionTest: process.env.WHATSAPP_TRIAL_DELIVERY_MODE === "connection_test",
     recipients: new Set(unique),
     phoneId: process.env.WHATSAPP_TRIAL_PHONE_NUMBER_ID?.trim() ?? "",
     token: process.env.WHATSAPP_TRIAL_ACCESS_TOKEN?.trim() ?? "",
@@ -197,18 +200,22 @@ export async function sendTrialForPublishedPeriod(periodId: number, actor?: { ro
   if (unavailable) return { mode: "disabled", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال واتساب التجريبي غير مفعّل" };
   if (actor && (actor.role === "supervisor" || actor.role === "worker" || (actor.role !== "admin" && actor.accessScope != null)))
     return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال جداول التجربة المتعددة متاح لمسؤول بصلاحية تغطي جميع المراكز" };
-  if (!config.approvedTemplate) return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "الجدول معتمد، وإرسال الورديات ينتظر اعتماد قالب Meta وضبطه. لم تُرسل رسالة الاختبار بدل الجدول." };
+  if (!config.connectionTest && !config.approvedTemplate) return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "الجدول معتمد، وإرسال الورديات ينتظر اعتماد قالب Meta وضبطه. لم تُرسل رسالة الاختبار بدل الجدول." };
   const prepared = await prepareTrialForPublishedPeriod(periodId);
   // The configured allowlist is capped at five even if a week contains hundreds of workers.
   const results = await Promise.allSettled(prepared.messages.map(async (message) => {
     if (!message.values || message.error) throw new Error(message.error ?? "تعذر تجهيز جدول العامل");
-    return sendTrialTemplate(message.phone, message.values);
+    // In explicit connection-test mode, use only Meta's approved fixed template.
+    // Worker names, dates and shifts are never attached to this request.
+    return sendTrialTemplate(message.phone, config.connectionTest ? undefined : message.values);
   }));
   const sent = results.filter((result) => result.status === "fulfilled" && result.value).length;
   const failed = results.length - sent;
   return {
     mode: "test", eligible: prepared.messages.length, sent, failed,
     skipped: prepared.skipped,
-    note: "نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم",
+    note: config.connectionTest
+      ? "اختبار اتصال فقط: أُرسلت طلبات قالب Meta التجريبي hello_world دون أسماء العمال أو تفاصيل جداولهم؛ هذه ليست رسائل الورديات. تأكيد التسليم يحتاج تحقق المستلم أو إشعار Meta."
+      : "نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم",
   };
 }

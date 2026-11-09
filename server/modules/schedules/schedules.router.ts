@@ -124,6 +124,7 @@ export const schedulesRouter = router({
       recipients: config.recipients.size,
       targets: Array.from(config.recipients).map((number, index) => ({ index, ending: number.slice(-4) })),
       scheduleTemplateApproved: !!config.approvedTemplate,
+      connectionTest: config.connectionTest,
       webhookReady: !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && !!process.env.WHATSAPP_META_APP_SECRET,
     };
   }),
