@@ -29,6 +29,7 @@ import * as assignmentsService from "./assignments.service";
 import * as workerCardService from "./worker-card.service";
 import * as weeklyBoardService from "./weekly-board.service";
 import { previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, trialConfig } from "./whatsapp-trial";
+import { listScheduleDeliveryReviews, resolveScheduleDeliveryReview } from "./whatsapp-trial-state";
 import * as workerScope from "./worker-scope";
 import * as assignmentRepository from "./assignments.repository";
 import { ScheduleError } from "./schedules.service";
@@ -124,10 +125,24 @@ export const schedulesRouter = router({
       recipients: config.recipients.size,
       targets: Array.from(config.recipients).map((number, index) => ({ index, ending: number.slice(-4) })),
       scheduleTemplateApproved: !!config.approvedTemplate,
+      updateTemplateApproved: !!config.approvedUpdateTemplate,
+      autoSend: config.autoSend,
       connectionTest: config.connectionTest,
       webhookReady: !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && !!process.env.WHATSAPP_META_APP_SECRET,
     };
   }),
+  getWhatsAppTrialReviews: protectedProcedure
+    .input(z.object({ periodId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "مراجعة الإرسال متاحة لمسؤول النظام" });
+      return listScheduleDeliveryReviews(input.periodId);
+    }),
+  resolveWhatsAppTrialReview: protectedProcedure
+    .input(z.object({ periodId: z.number().int().positive(), workerId: z.number().int().positive(), delivered: z.boolean(), reason: z.string().trim().min(8).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "مراجعة الإرسال متاحة لمسؤول النظام" });
+      try { return await resolveScheduleDeliveryReview({ ...input, actorId: ctx.user.id }); } catch (error) { toTRPC(error); }
+    }),
   sendWhatsAppTrialProbe: protectedProcedure
     .input(z.object({ recipientIndex: z.number().int().min(0).max(4) }))
     .mutation(async ({ ctx, input }) => {
@@ -332,6 +347,11 @@ export const schedulesRouter = router({
           publishedBy: ctx.user.id,
           actor: ctx.user,
         });
+        if (!trialConfig().autoSend)
+          return { ...period, whatsappTrial: {
+            mode: "disabled" as const, eligible: 0, sent: 0, failed: 0, skipped: 0,
+            note: "نُشر الجدول. الإرسال التلقائي لواتساب غير مفعّل؛ يمكن معاينة التجربة وإرسالها يدويًا.",
+          } };
         if (ctx.user.role === "supervisor" || ctx.user.role === "worker" || (ctx.user.role !== "admin" && ctx.user.accessScope != null))
           return { ...period, whatsappTrial: {
             mode: "disabled" as const, eligible: 0, sent: 0, failed: 0, skipped: 0,

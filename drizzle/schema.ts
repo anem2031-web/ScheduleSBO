@@ -1154,6 +1154,17 @@ export const schedulePeriods = mysqlTable(
 export type SchedulePeriod = typeof schedulePeriods.$inferSelect;
 export type InsertSchedulePeriod = typeof schedulePeriods.$inferInsert;
 
+/** Pilot WhatsApp delivery state. One locked row per worker and week. */
+export const whatsappTrialScheduleState = mysqlTable("whatsapp_trial_schedule_state", {
+  periodId: int("period_id").notNull().references(() => schedulePeriods.id, { onDelete: "cascade" }),
+  workerId: int("worker_id").notNull().references(() => workers.id, { onDelete: "cascade" }),
+  snapshot: json("snapshot").$type<string[] | null>(),
+  pendingSnapshot: json("pending_snapshot").$type<string[] | null>(),
+  state: mysqlEnum("state", ["idle", "sending", "needs_review"]).notNull().default("idle"),
+  claimId: varchar("claim_id", { length: 36 }),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({ pk: primaryKey({ columns: [table.periodId, table.workerId] }) }));
+
 /**
  * تعريف الوردية (قالب قابل لإعادة الاستخدام) — منفصل عن التكليف.
  * الوردية العابرة لمنتصف الليل: crossesMidnight=true وتُنسب ليوم بدايتها.

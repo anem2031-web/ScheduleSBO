@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ getDb: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getDb: vi.fn(), claim: vi.fn(), save: vi.fn(), stage: vi.fn() }));
 vi.mock("../../shared/db", () => ({ getDb: mocks.getDb }));
-import { buildWeeklyTemplateValues, previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, sendTrialTemplate, trialConfig } from "./whatsapp-trial";
+vi.mock("./whatsapp-trial-state", () => ({ claimScheduleDelivery: mocks.claim, saveScheduleDelivery: mocks.save, stageScheduleDelivery: mocks.stage }));
+import { buildScheduleUpdates, buildWeeklyTemplateValues, deliverChangedSchedule, previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, sendTrialTemplate, sendTrialUpdate, trialConfig } from "./whatsapp-trial";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -11,15 +12,28 @@ afterEach(() => {
 
 function configure() {
   vi.stubEnv("WHATSAPP_TRIAL_ENABLED", "true");
+  vi.stubEnv("WHATSAPP_TRIAL_AUTO_SEND", "false");
   vi.stubEnv("WHATSAPP_TRIAL_PHONE_NUMBER_ID", "123456789012345");
   vi.stubEnv("WHATSAPP_TRIAL_ACCESS_TOKEN", "test-token");
   vi.stubEnv("WHATSAPP_TRIAL_RECIPIENTS", "+966570344919,+966550931212,+966502202734");
   vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "false");
   vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_NAME", "wardia_weekly_schedule");
+  vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_VARIABLES", "21");
+  vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_NAME", "wardia_schedule_update");
+  vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "false");
   vi.stubEnv("WHATSAPP_TRIAL_DELIVERY_MODE", "schedule");
+  mocks.claim.mockResolvedValue({ claimId: "test-claim", snapshot: null });
+  mocks.save.mockResolvedValue(undefined);
+  mocks.stage.mockResolvedValue(undefined);
 }
 
 describe("Meta test-number delivery guard", () => {
+  it("requires an explicit switch to send automatically on publication", () => {
+    configure();
+    expect(trialConfig().autoSend).toBe(false);
+    vi.stubEnv("WHATSAPP_TRIAL_AUTO_SEND", "true");
+    expect(trialConfig().autoSend).toBe(true);
+  });
   it("requires an explicit connection_test mode and keeps unknown modes on schedule behavior", () => {
     configure();
     expect(trialConfig().connectionTest).toBe(false);
@@ -70,6 +84,73 @@ describe("Meta test-number delivery guard", () => {
     });
   });
 
+  it("does not send the new shape until the 21-variable contract is explicitly enabled", async () => {
+    configure();
+    vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
+    vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_VARIABLES", "14");
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const schedule = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [] });
+    expect(await sendTrialTemplate("966570344919", schedule)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends only a 5-value update to an allowlisted recipient when approved", async () => {
+    configure();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetchMock);
+    const update = ["الأحد", "08/11/2026", "تغيير وقت الدوام", "FROM 04:00 PM TO 01:00 AM", "—"];
+    expect(await sendTrialUpdate("966570344919", update)).toBe(false);
+    vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "true");
+    expect(await sendTrialUpdate("966500000000", update)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await sendTrialUpdate("966570344919", update)).toBe(true);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.template.name).toBe("wardia_schedule_update");
+    expect(payload.template.components[0].parameters.map((p: { text: string }) => p.text)).toEqual(update);
+  });
+
+  it("republication sends only the changed day and records its snapshot", async () => {
+    configure(); vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
+    vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "true");
+    const prior = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [], leaves: [{ start: "2026-11-08", end: "2026-11-14", kind: "annual" }] });
+    const current = [...prior]; current[4] = "FROM 04:00 PM TO 01:00 AM";
+    mocks.claim.mockResolvedValue({ claimId: "test-claim", snapshot: prior });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true }); vi.stubGlobal("fetch", fetchMock);
+    expect(await deliverChangedSchedule(1, 7, "966570344919", current)).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.template.name).toBe("wardia_schedule_update");
+    expect(payload.template.components[0].parameters.map((p: {text:string}) => p.text)).toEqual(["الاثنين", "09/11/2026", "تغيير وقت الدوام", "FROM 04:00 PM TO 01:00 AM", "—"]);
+    expect(mocks.save).toHaveBeenLastCalledWith(1, 7, "test-claim", current, "idle");
+  });
+
+  it("does not resend unchanged schedules and flags uncertain requests for review", async () => {
+    configure(); vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
+    const snapshot = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [], leaves: [{ start: "2026-11-08", end: "2026-11-14", kind: "annual" }] });
+    mocks.claim.mockResolvedValue({ claimId: "test-claim", snapshot });
+    const fetchMock = vi.fn().mockRejectedValue(new Error("timeout")); vi.stubGlobal("fetch", fetchMock);
+    expect(await deliverChangedSchedule(1, 7, "966570344919", snapshot)).toBe("unchanged");
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "true");
+    const changed = [...snapshot]; changed[1] = "FROM 04:00 PM TO 01:00 AM";
+    await expect(deliverChangedSchedule(1, 7, "966570344919", changed)).rejects.toThrow("timeout");
+    expect(mocks.save).toHaveBeenLastCalledWith(1, 7, "test-claim", snapshot, "needs_review");
+  });
+
+  it("records each accepted day before attempting the next and stops after an uncertain response", async () => {
+    configure(); vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "true");
+    const prior = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [], leaves: [{ start: "2026-11-08", end: "2026-11-14", kind: "annual" }] });
+    const current = [...prior]; current[1] = "FROM 04:00 PM TO 01:00 AM"; current[4] = "FROM 03:00 PM TO 11:00 PM";
+    mocks.claim.mockResolvedValue({ claimId: "test-claim", snapshot: prior });
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error("timeout"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(deliverChangedSchedule(1, 7, "966570344919", current)).rejects.toThrow("timeout");
+    const firstAccepted = [...prior]; firstAccepted[1] = current[1];
+    expect(mocks.save).toHaveBeenNthCalledWith(1, 1, 7, "test-claim", firstAccepted, "sending");
+    expect(mocks.stage).toHaveBeenNthCalledWith(2, 1, 7, "test-claim", current);
+    expect(mocks.save).toHaveBeenLastCalledWith(1, 7, "test-claim", firstAccepted, "needs_review");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("automatic publication waits without any Meta call while template is unapproved", async () => {
     configure();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
@@ -108,7 +189,7 @@ describe("Meta test-number delivery guard", () => {
     expect(preview.messages[0]).toMatchObject({ workerId: 3, phoneEnding: "4919" });
     expect(preview.messages[0].error).toContain("الجدول غير مكتمل");
     expect(preview.messages[0]).not.toHaveProperty("phone");
-    expect(preview.messages[0].values?.slice(0, 8)).toEqual(["08/11/2026", "16:00 – 01:00", "09/11/2026", "إجازة سنوية", "10/11/2026", "إجازة سنوية", "11/11/2026", "إجازة أسبوعية"]);
+    expect(preview.messages[0].values?.slice(0, 12)).toEqual(["08/11/2026", "FROM 04:00 PM TO 01:00 AM", "—", "09/11/2026", "إجازة سنوية", "—", "10/11/2026", "إجازة سنوية", "—", "11/11/2026", "إجازة أسبوعية", "—"]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -132,8 +213,8 @@ describe("Meta test-number delivery guard", () => {
     const report = await sendTrialForPublishedPeriod(5, { role: "admin" });
     expect(report).toMatchObject({ sent: 1, eligible: 1, failed: 0 });
     const params = JSON.parse(fetchMock.mock.calls[0][1].body).template.components[0].parameters;
-    expect(params).toHaveLength(14);
-    expect(params.filter((_: unknown, index: number) => index % 2 === 1).every((p: { text: string }) => p.text === "إجازة سنوية")).toBe(true);
+    expect(params).toHaveLength(21);
+    expect(params.filter((_: unknown, index: number) => index % 3 === 1).every((p: { text: string }) => p.text === "إجازة سنوية")).toBe(true);
   });
 
   it("does not broaden automatic sending for supervisors or center-scoped approvers", async () => {
@@ -198,7 +279,19 @@ describe("Meta test-number delivery guard", () => {
   });
 });
 
-describe("weekly 14-variable contract", () => {
+describe("weekly 21-variable contract", () => {
+  it("produces one update only for the changed day and rejects incomplete schedules", () => {
+    const prior = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [], leaves: [{start:"2026-11-08",end:"2026-11-14",kind:"annual"}] });
+    const changed = [...prior]; changed[4] = "FROM 04:00 PM TO 01:00 AM";
+    expect(buildScheduleUpdates(prior, changed)).toEqual([["الاثنين", "09/11/2026", "تغيير وقت الدوام", "FROM 04:00 PM TO 01:00 AM", "—"]]);
+    changed[4] = "لم يُحدد الدوام";
+    expect(() => buildScheduleUpdates(prior, changed)).toThrow("الجدول غير مكتمل");
+  });
+
+  it("refuses to omit a third work period", () => {
+    const rows = ["05:00", "10:00", "18:00"].map((from) => ({ date: "2026-11-08", from, to: "23:00" }));
+    expect(() => buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows })).toThrow("فترتين فقط");
+  });
   it("maps every Sun–Sat date, sorts split shifts operationally, and distinguishes rest, leave and unplanned days", () => {
     const result = buildWeeklyTemplateValues({
       start: "2026-11-08", end: "2026-11-14", weeklyRestDay: 3,
@@ -211,13 +304,21 @@ describe("weekly 14-variable contract", () => {
       calendar: [{ date: "2026-11-13", code: "SICK_LEAVE", approved: true }],
     });
     expect(result).toEqual([
-      "08/11/2026", "05:00 – 10:00، 18:00 – 22:30",
-      "09/11/2026", "إجازة سنوية", "10/11/2026", "إجازة سنوية",
-      "11/11/2026", "إجازة أسبوعية", "12/11/2026", "16:00 – 01:00",
-      "13/11/2026", "إجازة مرضية", "14/11/2026", "لم يُحدد الدوام",
+      "08/11/2026", "الفترة 1: FROM 05:00 AM TO 10:00 AM", "الفترة 2: FROM 06:00 PM TO 10:30 PM",
+      "09/11/2026", "إجازة سنوية", "—", "10/11/2026", "إجازة سنوية", "—",
+      "11/11/2026", "إجازة أسبوعية", "—", "12/11/2026", "FROM 04:00 PM TO 01:00 AM", "—",
+      "13/11/2026", "إجازة مرضية", "—", "14/11/2026", "لم يُحدد الدوام", "—",
     ]);
-    expect(result).toHaveLength(14);
+    expect(result).toHaveLength(21);
     expect(result.every((value) => !/[\r\n\t]/.test(value))).toBe(true);
+  });
+
+  it("formats midnight and noon using the 12-hour clock", () => {
+    const result = buildWeeklyTemplateValues({
+      start: "2026-11-08", end: "2026-11-14",
+      rows: [{ date: "2026-11-08", from: "00:00", to: "12:00" }],
+    });
+    expect(result[1]).toBe("FROM 12:00 AM TO 12:00 PM");
   });
 
   it("does not call an unapproved calendar absence a leave", () => {

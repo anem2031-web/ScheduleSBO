@@ -4,6 +4,7 @@ import { normalizeWorkerPhone } from "../../../shared/worker-phone";
 import { addCalendarDays, isCalendarDate, sundayOf } from "../../../shared/weekly-schedule";
 import { operationalClockMinutes } from "../../../shared/operational-day";
 import { getDb } from "../../shared/db";
+import { claimScheduleDelivery, saveScheduleDelivery, stageScheduleDelivery } from "./whatsapp-trial-state";
 
 export type TrialSendReport = {
   mode: "disabled" | "waiting" | "test";
@@ -30,17 +31,20 @@ export function trialConfig() {
     .filter((number): number is string => number !== null);
   const unique = Array.from(new Set(allowed));
   const enabled = process.env.WHATSAPP_TRIAL_ENABLED === "true";
-  if (unique.length > 5) throw new Error("رقم Meta التجريبي يقبل خمسة مستلمين فقط");
+  if (unique.length > 5) throw new Error("تجربة وردية تقتصر على خمسة مستلمين");
   return {
     enabled,
+    autoSend: process.env.WHATSAPP_TRIAL_AUTO_SEND === "true",
     // Only this exact opt-in enables the temporary hello_world publication test.
     // Missing/unknown modes retain schedule behavior and never fall back silently.
     connectionTest: process.env.WHATSAPP_TRIAL_DELIVERY_MODE === "connection_test",
     recipients: new Set(unique),
     phoneId: process.env.WHATSAPP_TRIAL_PHONE_NUMBER_ID?.trim() ?? "",
     token: process.env.WHATSAPP_TRIAL_ACCESS_TOKEN?.trim() ?? "",
-    approvedTemplate: process.env.WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED === "true"
+    approvedTemplate: process.env.WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED === "true" && process.env.WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_VARIABLES === "21"
       ? process.env.WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_NAME?.trim() ?? "" : "",
+    approvedUpdateTemplate: process.env.WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED === "true"
+      ? process.env.WHATSAPP_TRIAL_UPDATE_TEMPLATE_NAME?.trim() ?? "" : "",
   };
 }
 
@@ -60,7 +64,14 @@ const calendarLabels: Record<string, string> = {
   LEAVE: "إجازة معتمدة", EMERGENCY_LEAVE: "إجازة طارئة",
 };
 
-/** Exact contract for wardia_weekly_schedule: Sunday date/time through Saturday date/time. */
+function formatWhatsAppClock(time: string): string {
+  operationalClockMinutes(time);
+  const hour = Number(time.slice(0, 2));
+  const hour12 = hour % 12 || 12;
+  return `${String(hour12).padStart(2, "0")}:${time.slice(3, 5)} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** Sunday to Saturday, each with date, first period/status, and optional second period. */
 export function buildWeeklyTemplateValues(input: WeeklyTemplateInput): string[] {
   if (!isCalendarDate(input.start) || !isCalendarDate(input.end) || sundayOf(input.start) !== input.start || addCalendarDays(input.start, 6) !== input.end)
     throw new Error("قالب واتساب الأسبوعي يتطلب أسبوعًا كاملًا من الأحد إلى السبت");
@@ -75,15 +86,91 @@ export function buildWeeklyTemplateValues(input: WeeklyTemplateInput): string[] 
       : calendar ? calendarLabels[calendar.code.toUpperCase()]
       : input.weeklyRestDay === index ? "إجازة أسبوعية" : undefined;
     if (absenceLabel && dayRows.length) throw new Error(`توجد فترات عمل متعارضة مع إجازة العامل بتاريخ ${date}`);
-    const times = dayRows.map((row) => {
-      // Validate both clocks and keep one single-line parameter for all of this day's periods.
-      operationalClockMinutes(row.from);
-      operationalClockMinutes(row.to);
-      return `${row.from.slice(0, 5)} – ${row.to.slice(0, 5)}`;
-    }).join("، ");
-    values.push(`${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`, absenceLabel ?? (times || "لم يُحدد الدوام"));
+    if (dayRows.length > 2) throw new Error(`قالب واتساب يدعم فترتين فقط؛ راجع جدول العامل بتاريخ ${date}`);
+    const times = dayRows.map((row, index) => {
+      const period = `FROM ${formatWhatsAppClock(row.from)} TO ${formatWhatsAppClock(row.to)}`;
+      return dayRows.length > 1 ? `الفترة ${index + 1}: ${period}` : period;
+    });
+    values.push(`${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`, absenceLabel ?? (times[0] || "لم يُحدد الدوام"), times[1] ?? "—");
   }
   return values;
+}
+
+const ARABIC_WEEKDAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+/** Produce updates for changed dates only, using the 21-value weekly contract. */
+export function buildScheduleUpdates(previous: string[], current: string[]): string[][] {
+  if (previous.length !== 21 || current.length !== 21) throw new Error("تتعذر مقارنة جدول غير مكتمل");
+  const updates: string[][] = [];
+  for (let day = 0; day < 7; day++) {
+    const index = day * 3;
+    const [date, first, second] = current.slice(index, index + 3);
+    if (date !== previous[index]) throw new Error("لا يمكن مقارنة أسبوعين مختلفين");
+    if (first === "لم يُحدد الدوام") throw new Error("الجدول غير مكتمل؛ لا يمكن إرسال التعديل");
+    if (first === previous[index + 1] && second === previous[index + 2]) continue;
+    const type = Object.values(calendarLabels).includes(first) ? "تغيير حالة الدوام" : "تغيير وقت الدوام";
+    updates.push([ARABIC_WEEKDAYS[day], date, type, first, second]);
+  }
+  return updates;
+}
+
+export async function sendTrialUpdate(to: string, update: string[]): Promise<boolean> {
+  const config = trialConfig();
+  if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to) || !config.approvedUpdateTemplate) return false;
+  if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم واتساب غير صالح");
+  if (update.length !== 5 || update.some((value) => !value.trim() || /[\r\n\t]/.test(value))) throw new Error("قالب التعديل يتطلب 5 قيم نصية غير فارغة");
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "template", template: {
+      name: config.approvedUpdateTemplate, language: { code: "ar" },
+      components: [{ type: "body", parameters: update.map((text) => ({ type: "text", text })) }],
+    } }), signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw new Error(`تعذر إرسال التعديل عبر Meta (${response.status})`);
+  return true;
+}
+
+/** Serialize a worker's pilot messages; uncertain delivery is never retried automatically. */
+export async function deliverChangedSchedule(periodId: number, workerId: number, phone: string, current: string[]): Promise<"sent" | "unchanged"> {
+  const config = trialConfig();
+  const { claimId, snapshot: prior } = await claimScheduleDelivery(periodId, workerId);
+  let snapshot = prior;
+  let requested = false;
+  try {
+    if (!snapshot) {
+      if (!config.approvedTemplate) throw new Error("قالب الجدول الأسبوعي غير معتمد أو غير مهيأ");
+      await stageScheduleDelivery(periodId, workerId, claimId, current);
+      requested = true;
+      if (!await sendTrialTemplate(phone, current)) throw new Error("إرسال الجدول غير مفعّل لهذا العامل");
+      snapshot = [...current];
+      await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
+      return "sent";
+    }
+    const updates = buildScheduleUpdates(snapshot, current);
+    if (!updates.length) {
+      await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
+      return "unchanged";
+    }
+    if (!config.approvedUpdateTemplate) throw new Error("قالب تعديل الدوام غير معتمد أو غير مهيأ");
+    for (const update of updates) {
+      const day = ARABIC_WEEKDAYS.indexOf(update[0]);
+      const next: string[] = [...(snapshot ?? [])];
+      next.splice(day * 3, 3, ...current.slice(day * 3, day * 3 + 3));
+      await stageScheduleDelivery(periodId, workerId, claimId, next);
+      requested = true;
+      if (!await sendTrialUpdate(phone, update)) throw new Error("إرسال التعديل غير مفعّل لهذا العامل");
+      snapshot = next;
+      await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "sending");
+    }
+    await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
+    return "sent";
+  } catch (error) {
+    // Once a request is attempted, an error may mean Meta accepted it but its reply was lost.
+    // Stop retries until a human verifies delivery; this avoids duplicate notifications.
+    try { await saveScheduleDelivery(periodId, workerId, claimId, snapshot, requested ? "needs_review" : "idle"); } catch { /* A stuck claim is safer than an untracked resend. */ }
+    throw error;
+  }
 }
 
 export async function sendTrialTemplate(to: string, schedule?: string[]): Promise<boolean> {
@@ -92,8 +179,8 @@ export async function sendTrialTemplate(to: string, schedule?: string[]): Promis
   if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم Meta التجريبي غير صالح");
   // A schedule must never fall back to the fixed hello_world connectivity probe.
   if (schedule && !config.approvedTemplate) return false;
-  if (schedule && (schedule.length !== 14 || schedule.some((value) => !value.trim() || /[\r\n\t]/.test(value))))
-    throw new Error("قالب الجدول يتطلب 14 قيمة نصية غير فارغة، كل قيمة في سطر واحد");
+  if (schedule && (schedule.length !== 21 || schedule.some((value) => !value.trim() || /[\r\n\t]/.test(value))))
+    throw new Error("قالب الجدول يتطلب 21 قيمة نصية غير فارغة، كل قيمة في سطر واحد");
   const useScheduleTemplate = !!schedule;
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
     method: "POST",
@@ -174,7 +261,7 @@ async function prepareTrialForPublishedPeriod(periodId: number) {
         leaves: leaves.filter((leave) => leave.workerId === item.id && leave.startDate && leave.endDate && (leave.kind === "annual" || leave.kind === "sick"))
           .map((leave) => ({ start: dateKey(leave.startDate!), end: dateKey(leave.endDate!), kind: leave.kind as "annual" | "sick" })),
       });
-      const missingDays = values.filter((value, index) => index % 2 === 1 && value === "لم يُحدد الدوام").length;
+      const missingDays = values.filter((value, index) => index % 3 === 1 && value === "لم يُحدد الدوام").length;
       return { workerId: item.id, name: item.name, phone: item.phone, values,
         error: missingDays ? `الجدول غير مكتمل: لم يُحدد الدوام في ${missingDays} أيام؛ لا يُرسل حتى يكتمل` : null };
     } catch (error) {
@@ -207,13 +294,18 @@ export async function sendTrialForPublishedPeriod(periodId: number, actor?: { ro
     if (!message.values || message.error) throw new Error(message.error ?? "تعذر تجهيز جدول العامل");
     // In explicit connection-test mode, use only Meta's approved fixed template.
     // Worker names, dates and shifts are never attached to this request.
-    return sendTrialTemplate(message.phone, config.connectionTest ? undefined : message.values);
+    if (config.connectionTest) {
+      if (!await sendTrialTemplate(message.phone)) throw new Error("إرسال التجربة غير مفعّل لهذا العامل");
+      return "sent" as const;
+    }
+    return deliverChangedSchedule(periodId, message.workerId, message.phone, message.values);
   }));
-  const sent = results.filter((result) => result.status === "fulfilled" && result.value).length;
-  const failed = results.length - sent;
+  const sent = results.filter((result) => result.status === "fulfilled" && result.value === "sent").length;
+  const unchanged = results.filter((result) => result.status === "fulfilled" && result.value === "unchanged").length;
+  const failed = results.filter((result) => result.status === "rejected").length;
   return {
     mode: "test", eligible: prepared.messages.length, sent, failed,
-    skipped: prepared.skipped,
+    skipped: prepared.skipped + unchanged,
     note: config.connectionTest
       ? "اختبار اتصال فقط: أُرسلت طلبات قالب Meta التجريبي hello_world دون أسماء العمال أو تفاصيل جداولهم؛ هذه ليست رسائل الورديات. تأكيد التسليم يحتاج تحقق المستلم أو إشعار Meta."
       : "نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم",

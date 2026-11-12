@@ -92,6 +92,7 @@ export function WeeklyBoard() {
   } | null>(null);
   const [printReady, setPrintReady] = useState(false);
   const [showWhatsAppPreview, setShowWhatsAppPreview] = useState(false);
+  const [showWhatsAppReviews, setShowWhatsAppReviews] = useState(false);
   const printFrame = useRef<HTMLIFrameElement>(null);
   const {
     data,
@@ -129,6 +130,14 @@ export function WeeklyBoard() {
     { periodId: period?.id ?? 0 },
     { enabled: showWhatsAppPreview && period?.status === "published" && canSendWholeWhatsAppTrial },
   );
+  const whatsAppReviews = trpc.schedules.getWhatsAppTrialReviews.useQuery(
+    { periodId: period?.id ?? 0 },
+    { enabled: showWhatsAppReviews && !!period?.id && user?.role === "admin" },
+  );
+  const resolveWhatsAppReview = trpc.schedules.resolveWhatsAppTrialReview.useMutation({
+    onSuccess: () => { setMessage("تم تسجيل مراجعة إرسال واتساب."); setError(""); whatsAppReviews.refetch(); },
+    onError: (err) => setError(err.message),
+  });
   const approve = trpc.schedules.publishPeriod.useMutation({
     onSuccess: (result) => {
       const trial = result.whatsappTrial;
@@ -480,8 +489,10 @@ export function WeeklyBoard() {
       {canApprove && whatsappTrial.data && (
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
           واتساب التجريبي: {whatsappTrial.data.ready ? `الربط جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
+          {whatsappTrial.data.ready && !whatsappTrial.data.autoSend && " الإرسال عند اعتماد الأسبوع متوقف؛ يمكن الإرسال يدويًا بعد المراجعة."}
+          {whatsappTrial.data.ready && !whatsappTrial.data.connectionTest && !whatsappTrial.data.updateTemplateApproved && " إرسال التعديلات ينتظر اعتماد قالب التعديل وضبطه."}
           {whatsappTrial.data.ready && (whatsappTrial.data.connectionTest
-            ? " وضع اختبار الاتصال مفعّل: اعتماد الأسبوع يرسل رسالة Meta التجريبية المعتمدة إلى عمال التجربة دون تفاصيل جدولهم."
+            ? " وضع اختبار الاتصال مفعّل، وتحتوي رسالة الاختبار على نص Meta التجريبي دون تفاصيل الجداول."
             : !whatsappTrial.data.scheduleTemplateApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن.")}
           <div className="mt-2 flex flex-wrap gap-2">
             {whatsappTrial.data.ready && whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
@@ -490,12 +501,13 @@ export function WeeklyBoard() {
             {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm" variant="outline" onClick={() => setShowWhatsAppPreview(true)}>
               معاينة رسائل عمال التجربة
             </Button>}
+            {period && user?.role === "admin" && <Button size="sm" variant="outline" onClick={() => setShowWhatsAppReviews(true)}>مراجعة إرسال واتساب</Button>}
             {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm"
               disabled={!whatsappTrial.data.ready || (!whatsappTrial.data.scheduleTemplateApproved && !whatsappTrial.data.connectionTest) || sendPublishedWhatsAppTrial.isPending}
               onClick={() => {
                 if (window.confirm(whatsappTrial.data.connectionTest
                   ? "إرسال رسالة Meta التجريبية لاختبار الاتصال إلى عمال التجربة المسموح بهم؟ الرسالة لا تحتوي على تفاصيل جدولهم. إذا أرسلتها سابقًا فقد تصلهم نسخة أخرى."
-                  : "إرسال جدول هذا الأسبوع المعتمد إلى عمال التجربة المسموح بهم؟ إذا أرسلته سابقًا فقد تصلهم نسخة أخرى."))
+                  : "إرسال الجدول أو التغييرات المعتمدة إلى عمال التجربة؟ لن تُعاد الرسائل المسجلة سابقًا دون تغيير."))
                   sendPublishedWhatsAppTrial.mutate({ periodId: period.id });
               }}>
               {whatsappTrial.data.connectionTest
@@ -517,11 +529,37 @@ export function WeeklyBoard() {
               <h3 className="font-semibold">{entry.name} · الرقم المنتهي بـ{entry.phoneEnding}</h3>
               {entry.error ? <p role="alert" className="text-destructive">{entry.error}</p> : <table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="p-2 text-right">اليوم</th><th className="p-2 text-right">التاريخ</th><th className="p-2 text-right">الدوام أو الإجازة</th></tr></thead>
-                <tbody>{WEEK_DAY_NAMES.map((name, index) => <tr key={name} className="border-b last:border-0"><td className="p-2">{name}</td><td className="p-2"><span dir="ltr">{entry.values?.[index * 2]}</span></td><td className="p-2">{entry.values?.[index * 2 + 1]}</td></tr>)}</tbody>
+                <tbody>{WEEK_DAY_NAMES.map((name, index) => <tr key={name} className="border-b last:border-0"><td className="p-2">{name}</td><td className="p-2"><span dir="ltr">{entry.values?.[index * 3]}</span></td><td className="p-2"><div>{entry.values?.[index * 3 + 1]}</div><div>{entry.values?.[index * 3 + 2]}</div></td></tr>)}</tbody>
               </table>}
             </section>)}
           </>}
           <DialogFooter><Button variant="outline" onClick={() => setShowWhatsAppPreview(false)}>إغلاق المعاينة</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showWhatsAppReviews} onOpenChange={setShowWhatsAppReviews}>
+        <DialogContent dir="rtl" className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader><DialogTitle>مراجعة إرسال واتساب</DialogTitle>
+            <DialogDescription>تحقق من هاتف العامل أولًا. لا تعِد المحاولة إذا لم تتأكد من وصول الرسالة أو عدم وصولها.</DialogDescription></DialogHeader>
+          {whatsAppReviews.isLoading ? <p>جارٍ تحميل الحالات…</p> : whatsAppReviews.error ? <p role="alert">تعذرت قراءة الحالات. تحقق من تهيئة جدول واتساب في قاعدة البيانات.</p> : <>
+            {!whatsAppReviews.data?.length && <p>لا توجد حالات تنتظر المراجعة لهذا الأسبوع.</p>}
+            {whatsAppReviews.data?.map((item) => <section key={item.workerId} className="space-y-2 rounded-lg border p-3">
+              <h3 className="font-semibold">{item.name} · {item.state === "sending" ? "قيد المعالجة" : "تحتاج مراجعة"}</h3>
+              <p className="text-sm">الحالة المعلقة للجدول: {item.pendingSnapshot ? "تم تجهيز رسالة قبل انقطاع التأكيد" : "لم تُجهّز بيانات رسالة"}.</p>
+              {item.pendingSnapshot && <div className="max-h-44 overflow-auto rounded border p-2 text-sm">{WEEK_DAY_NAMES.map((day, i) => {
+                const old = item.snapshot?.slice(i * 3, i * 3 + 3);
+                const next = item.pendingSnapshot?.slice(i * 3, i * 3 + 3);
+                return next && (!old || JSON.stringify(old) !== JSON.stringify(next)) ? <div key={day} className="border-b py-1">{day} · <span dir="ltr">{next[0]}</span> · {next[1]} · {next[2]}</div> : null;
+              })}</div>}
+              <div className="flex flex-wrap gap-2">{[true, false].map((delivered) => <Button key={String(delivered)} size="sm" variant="outline" disabled={resolveWhatsAppReview.isPending || (delivered && !item.pendingSnapshot)} onClick={() => {
+                const reason = window.prompt(delivered ? "بعد التأكد من وصول الرسالة إلى العامل، اكتب سبب اعتماد المراجعة:" : "بعد التأكد أن الرسالة لم تصل، اكتب سبب فتح إعادة المحاولة:");
+                if (!reason) return;
+                if (reason.trim().length < 8) { setError("اكتب سببًا لا يقل عن 8 أحرف."); return; }
+                if (period && window.confirm(delivered ? "تأكيد تسجيل الرسالة على أنها وصلت للعامل؟" : "تأكيد عدم وصول الرسالة وفتح إمكانية إعادة إرسالها؟"))
+                  resolveWhatsAppReview.mutate({ periodId: period.id, workerId: item.workerId, delivered, reason });
+              }}>{delivered ? "تأكدت من وصولها" : "تأكدت أنها لم تصل"}</Button>)}</div>
+            </section>)}
+          </>}
+          <DialogFooter><Button variant="outline" onClick={() => setShowWhatsAppReviews(false)}>إغلاق</Button></DialogFooter>
         </DialogContent>
       </Dialog>
       {isLoading ? (
