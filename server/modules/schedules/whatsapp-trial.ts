@@ -18,6 +18,34 @@ export type TrialSendReport = {
 const ACTIVE_ASSIGNMENTS = ["planned", "confirmed", "completed"] as const;
 const GRAPH_VERSION = "v25.0";
 
+class MetaTrialError extends Error {
+  constructor(readonly status: number, readonly metaCode?: number, readonly metaSubcode?: number) {
+    super(`تعذر إرسال طلب واتساب عبر Meta (HTTP ${status}${metaCode === undefined ? "" : `، Meta ${metaCode}`}${metaSubcode === undefined ? "" : `، فرعي ${metaSubcode}`})`);
+  }
+}
+
+async function metaTrialError(response: Response): Promise<MetaTrialError> {
+  // Error bodies may contain personal data or credentials. Keep only numeric codes.
+  let metaCode: number | undefined;
+  let metaSubcode: number | undefined;
+  try {
+    const body = await response.json() as { error?: { code?: unknown; error_subcode?: unknown } };
+    if (typeof body?.error?.code === "number" && Number.isSafeInteger(body.error.code) && body.error.code >= 0) metaCode = body.error.code;
+    if (typeof body?.error?.error_subcode === "number" && Number.isSafeInteger(body.error.error_subcode) && body.error.error_subcode >= 0) metaSubcode = body.error.error_subcode;
+  } catch { /* A response without JSON still reports its HTTP status. */ }
+  return new MetaTrialError(response.status, metaCode, metaSubcode);
+}
+
+function describeTrialFailure(error: unknown, dataError: boolean): string {
+  if (error instanceof MetaTrialError) {
+    return `HTTP ${error.status}${error.metaCode === undefined ? "" : `، Meta ${error.metaCode}`}${error.metaSubcode === undefined ? "" : `، فرعي ${error.metaSubcode}`}`;
+  }
+  if (dataError) return "بيانات الجدول تحتاج مراجعة";
+  if (error instanceof Error && error.message === "الإرسال السابق قيد المعالجة أو يحتاج مراجعة قبل إعادة المحاولة") return "محاولة سابقة تحتاج مراجعة";
+  if (error instanceof Error && ["TimeoutError", "AbortError", "TypeError"].includes(error.name)) return "تعذر الاتصال أو انتهت المهلة";
+  return "تعذرت معالجة الإرسال؛ راجع إعدادات النظام";
+}
+
 function recipientNumber(raw: string | null): string | null {
   if (!raw) return null;
   const value = normalizeWorkerPhone(raw);
@@ -127,7 +155,7 @@ export async function sendTrialUpdate(to: string, update: string[]): Promise<boo
       components: [{ type: "body", parameters: update.map((text) => ({ type: "text", text })) }],
     } }), signal: AbortSignal.timeout(12000),
   });
-  if (!response.ok) throw new Error(`تعذر إرسال التعديل عبر Meta (${response.status})`);
+  if (!response.ok) throw await metaTrialError(response);
   return true;
 }
 
@@ -198,8 +226,7 @@ export async function sendTrialTemplate(to: string, schedule?: string[]): Promis
     }),
     signal: AbortSignal.timeout(12000),
   });
-  // Never include Meta's error body: it can contain phone numbers or other private data.
-  if (!response.ok) throw new Error(`تعذر الإرسال التجريبي عبر Meta (${response.status})`);
+  if (!response.ok) throw await metaTrialError(response);
   return true;
 }
 
@@ -303,11 +330,13 @@ export async function sendTrialForPublishedPeriod(periodId: number, actor?: { ro
   const sent = results.filter((result) => result.status === "fulfilled" && result.value === "sent").length;
   const unchanged = results.filter((result) => result.status === "fulfilled" && result.value === "unchanged").length;
   const failed = results.filter((result) => result.status === "rejected").length;
+  const diagnostics = results.flatMap((result, index) => result.status === "rejected"
+    ? [`${prepared.messages[index].phone.slice(-4)}: ${describeTrialFailure(result.reason, !!prepared.messages[index].error)}`] : []);
   return {
     mode: "test", eligible: prepared.messages.length, sent, failed,
     skipped: prepared.skipped + unchanged,
     note: config.connectionTest
       ? "اختبار اتصال فقط: أُرسلت طلبات قالب Meta التجريبي hello_world دون أسماء العمال أو تفاصيل جداولهم؛ هذه ليست رسائل الورديات. تأكيد التسليم يحتاج تحقق المستلم أو إشعار Meta."
-      : "نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم",
+      : `نتيجة قبول Meta لطلبات إرسال الجدول؛ تأكيد التسليم يحتاج إشعار Meta أو تحقق المستلم${diagnostics.length ? `. تفاصيل الفشل (${diagnostics.join("؛ ")})` : ""}`,
   };
 }

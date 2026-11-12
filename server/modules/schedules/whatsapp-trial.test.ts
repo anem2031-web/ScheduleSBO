@@ -108,6 +108,37 @@ describe("Meta test-number delivery guard", () => {
     expect(payload.template.components[0].parameters.map((p: { text: string }) => p.text)).toEqual(update);
   });
 
+  it("reports only numeric Meta error codes and masks the recipient", async () => {
+    configure(); vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
+    const results: unknown[][] = [
+      [{ startDate: "2026-11-08", endDate: "2026-11-14", status: "published" }],
+      [{ id: 9, phone: "+966570344919", name: "عامل في إجازة" }],
+      [], [{ workerId: 9, weeklyRestDay: null }], [],
+      [{ workerId: 9, startDate: "2026-11-01", endDate: "2026-11-30", kind: "annual" }],
+    ];
+    mocks.getDb.mockResolvedValue({ select: () => {
+      const value = results.shift();
+      const query: any = { from: () => query, where: () => query, limit: () => query, innerJoin: () => query, leftJoin: () => query,
+        then: (resolve: any, reject: any) => Promise.resolve(value).then(resolve, reject) };
+      return query;
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400,
+      json: async () => ({ error: { code: 131008, error_subcode: 249, message: 'secret-token +966570344919' } }) }));
+    const report = await sendTrialForPublishedPeriod(5, { role: "admin" });
+    expect(report.failed).toBe(1);
+    expect(report.note).toContain("4919: HTTP 400، Meta 131008، فرعي 249");
+    expect(report.note).not.toContain("secret-token");
+    expect(report.note).not.toContain("966570344919");
+    expect(mocks.save).toHaveBeenLastCalledWith(5, 9, "test-claim", null, "needs_review");
+  });
+
+  it("reports the HTTP status even when Meta returns no parseable error body", async () => {
+    configure(); vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => { throw new Error("not json"); } }));
+    const schedule = buildWeeklyTemplateValues({ start: "2026-11-08", end: "2026-11-14", rows: [] });
+    await expect(sendTrialTemplate("966570344919", schedule)).rejects.toThrow("HTTP 401");
+  });
+
   it("republication sends only the changed day and records its snapshot", async () => {
     configure(); vi.stubEnv("WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED", "true");
     vi.stubEnv("WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED", "true");
