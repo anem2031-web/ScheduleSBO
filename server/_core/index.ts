@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "node:path";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 // [LOCAL AUTH] أُلغيت مسارات Manus OAuth — المصادقة الآن محلية عبر tRPC auth.login
 // import { registerOAuthRoutes } from "./oauth";
@@ -40,6 +41,13 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  const privacyPolicyFile = path.resolve(
+    import.meta.dirname,
+    process.env.NODE_ENV === "development" ? "../../client/public/privacy.html" : "public/privacy.html",
+  );
+  app.get("/privacy", (_req, res) => {
+    res.sendFile(privacyPolicyFile);
+  });
   registerStorageProxy(app);
   // registerOAuthRoutes(app); // [LOCAL AUTH] معطّلة — لا يوجد OAuth خارجي
   

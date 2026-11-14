@@ -32,6 +32,11 @@ export function LoginForm() {
     en: "Need an account? Contact your system administrator to create one.",
     ur: "اکاؤنٹ نہیں ہے؟ اکاؤنٹ بنانے کے لیے سسٹم ایڈمنسٹریٹر سے رابطہ کریں۔",
   }[language];
+  const privacyPolicy = {
+    ar: "سياسة الخصوصية",
+    en: "Privacy policy",
+    ur: "رازداری کی پالیسی",
+  }[language];
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
@@ -124,9 +129,12 @@ export function LoginForm() {
         </Button>
       </div>
 
-      <p className="text-center text-xs text-muted-foreground">
-        {accountHelp}
-      </p>
+      <div className="space-y-3 text-center text-xs text-muted-foreground">
+        <p>{accountHelp}</p>
+        <a className="text-primary underline underline-offset-4" href="/privacy">
+          {privacyPolicy}
+        </a>
+      </div>
     </div>
   );
 }
