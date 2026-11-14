@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { formatDateTime, normalizeDigits } from "@shared/display-format";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { permits } from "@shared/access-control";
+import { localizedName, localizedJobTitle } from "@/lib/localized-data";
 
 type ImportProgress = {
   workerId?: number;
@@ -37,6 +38,8 @@ type ImportProgress = {
 type WorkerChoice = {
   id: number;
   nameAr: string;
+  nameEn?: string | null;
+  nameUr?: string | null;
   departmentId: number;
   jobTitleId: number;
 };
@@ -69,6 +72,8 @@ export function WorkerBatchTools({
   onComplete: () => void;
 }) {
   const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
+  const dayLabel = (day: number) => language === "ar" ? weekdays[day] : language === "en" ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day] : ["اتوار", "پیر", "منگل", "بدھ", "جمعرات", "جمعہ", "ہفتہ"][day];
   const { user } = useAuth();
   const canImport = permits(user?.permissions ?? [], "workers:create");
   const canUpdate = permits(user?.permissions ?? [], "workers:update");
@@ -130,10 +135,10 @@ export function WorkerBatchTools({
     if (!file) return;
     try {
       if (file.size > 2 * 1024 * 1024)
-        throw new Error("حجم الملف يتجاوز 2 ميجابايت.");
+        throw new Error(text("حجم الملف يتجاوز 2 ميجابايت.", "File size exceeds 2 MB.", "فائل کا سائز 2 MB سے زیادہ ہے۔"));
       if (!/\.(csv|tsv)$/i.test(file.name))
         throw new Error(
-          "اختر ملف CSV أو TSV. يمكن حفظه من Excel بهذا التنسيق.",
+          text("اختر ملف CSV أو TSV. يمكن حفظه من Excel بهذا التنسيق.", "Choose a CSV or TSV file. Excel can save files in this format.", "CSV یا TSV فائل منتخب کریں۔ Excel اس فارمیٹ میں محفوظ کر سکتا ہے۔"),
         );
       setRows(parseWorkerImport(await file.text()));
       setProgress({});
@@ -188,20 +193,20 @@ export function WorkerBatchTools({
   };
   const commonInvalid = () => {
     if ((mode === "import" || departmentId) && (!departmentId || !jobTitleId))
-      return "اختر القسم والمسمى الوظيفي للمجموعة.";
+      return text("اختر القسم والمسمى الوظيفي للمجموعة.", "Select a department and job title for the group.", "گروپ کے لیے شعبہ اور عہدہ منتخب کریں۔");
     if (mode === "import" && (!hours || !restDay))
-      return "حدد الساعات اليومية ويوم الراحة للمجموعة؛ تستطيع تعديل الاستثناءات من بطاقة العامل.";
+      return text("حدد الساعات اليومية ويوم الراحة للمجموعة؛ تستطيع تعديل الاستثناءات من بطاقة العامل.", "Set daily hours and a rest day for the group; exceptions can be edited in each profile.", "گروپ کے روزانہ اوقات اور آرام کا دن مقرر کریں؛ استثنا پروفائل سے بدل سکتے ہیں۔");
     if (
       hours &&
       (!Number.isFinite(Number(hours)) ||
         Number(hours) < 0.5 ||
         Number(hours) > 24)
     )
-      return "أدخل ساعات يومية بين نصف ساعة و24 ساعة.";
+      return text("أدخل ساعات يومية بين نصف ساعة و24 ساعة.", "Enter daily hours between 0.5 and 24.", "روزانہ اوقات 0.5 سے 24 کے درمیان درج کریں۔");
     if (mode === "import" && (!rows.length || rows.some((row) => row.error)))
-      return "حمّل الأسماء وصحح أخطاء المعاينة أولًا.";
+      return text("حمّل الأسماء وصحح أخطاء المعاينة أولًا.", "Upload names and correct preview errors first.", "پہلے نام اپ لوڈ کریں اور غلطیاں درست کریں۔");
     if (mode === "bulk" && !selected.length)
-      return "حدد عاملًا واحدًا على الأقل.";
+      return text("حدد عاملًا واحدًا على الأقل.", "Select at least one worker.", "کم از کم ایک کارکن منتخب کریں۔");
     if (
       mode === "bulk" &&
       !departmentId &&
@@ -210,9 +215,9 @@ export function WorkerBatchTools({
       !restDay &&
       !branch
     )
-      return "حدد التعديل الذي تريد تطبيقه على المجموعة.";
+      return text("حدد التعديل الذي تريد تطبيقه على المجموعة.", "Select a change to apply to the group.", "گروپ پر لاگو کرنے کے لیے تبدیلی منتخب کریں۔");
     if (links.isError || links.isLoading)
-      return "انتظر تحميل ارتباطات المشرفين أو أعد المحاولة.";
+      return text("انتظر تحميل ارتباطات المشرفين أو أعد المحاولة.", "Wait for supervisor assignments or try again.", "سپروائزر کی ذمہ داریاں لوڈ ہونے دیں یا دوبارہ کوشش کریں۔");
     return "";
   };
   const execute = async () => {
@@ -259,7 +264,7 @@ export function WorkerBatchTools({
               jobTitleId: Number(jobTitleId),
             });
         }
-        if (!state.workerId) throw new Error("تعذر تحديد العامل المحفوظ.");
+        if (!state.workerId) throw new Error(text("تعذر تحديد العامل المحفوظ.", "Could not identify the saved worker.", "محفوظ کردہ کارکن کی شناخت نہیں ہو سکی۔"));
         for (const supervisorId of supervisorIds) {
           if (
             state.linkedIds.includes(supervisorId) ||
@@ -289,7 +294,7 @@ export function WorkerBatchTools({
             (!restDay && current?.weeklyRestDay == null)
           )
             throw new Error(
-              "أكمل الساعات ويوم الراحة لهذا العامل أو حددهما للمجموعة.",
+              text("أكمل الساعات ويوم الراحة لهذا العامل أو حددهما للمجموعة.", "Complete this worker’s hours and rest day, or set them for the group.", "اس کارکن کے اوقات اور آرام کا دن مکمل کریں، یا گروپ کے لیے مقرر کریں۔"),
             );
           await saveDuty.mutateAsync({
             workerId: state.workerId,
@@ -323,9 +328,9 @@ export function WorkerBatchTools({
     setBusy(false);
     if (failed)
       setError(
-        `اكتمل ${success} عاملًا وتعذر استكمال ${failed}. راجع سبب كل سطر ثم أعد محاولة السطور غير المكتملة.`,
+        text(`اكتمل ${success} عاملًا وتعذر استكمال ${failed}. راجع سبب كل سطر ثم أعد محاولة السطور غير المكتملة.`, `Completed ${success} workers; ${failed} could not be completed. Review each row and retry unfinished rows.`, `${success} کارکن مکمل ہوئے؛ ${failed} مکمل نہیں ہو سکے۔ ہر سطر چیک کریں اور نامکمل سطروں کو دوبارہ آزمائیں۔`),
       );
-    else toast.success(`تم حفظ ${success} عاملًا بنجاح`);
+    else toast.success(text(`تم حفظ ${success} عاملًا بنجاح`, `Saved ${success} workers successfully`, `${success} کارکن کامیابی سے محفوظ ہوئے`));
     onComplete();
   };
   const started = Object.values(progress).some((item) => item.workerId);
@@ -337,7 +342,7 @@ export function WorkerBatchTools({
         onClick={() => open("import")}
       >
         <Upload className="h-4 w-4" />
-        استيراد الأسماء
+        {text("استيراد الأسماء", "Import workers", "کارکن درآمد کریں")}
       </Button>}
       {canUpdate && <Button
         variant="outline"
@@ -346,7 +351,7 @@ export function WorkerBatchTools({
         onClick={() => open("bulk")}
       >
         <Users className="h-4 w-4" />
-        تعديل المجموعة {selected.length ? `(${selected.length})` : ""}
+        {text("تعديل المجموعة", "Edit group", "گروپ میں ترمیم")} {selected.length ? `(${selected.length})` : ""}
       </Button>}
       <Dialog
         open={!!mode}
@@ -355,26 +360,26 @@ export function WorkerBatchTools({
         }}
       >
         <DialogContent
-          dir="rtl"
+          dir={language === "en" ? "ltr" : "rtl"}
           className="max-h-[90vh] overflow-y-auto sm:max-w-4xl"
         >
           <DialogHeader>
             <DialogTitle>
               {mode === "import"
-                ? "استيراد العمال وربطهم"
-                : `تعديل ${selected.length} عاملًا دفعة واحدة`}
+                ? text("استيراد العمال وربطهم", "Import and assign workers", "کارکن درآمد اور مقرر کریں")
+                : text(`تعديل ${selected.length} عاملًا دفعة واحدة`, `Edit ${selected.length} workers at once`, `ایک ساتھ ${selected.length} کارکنوں میں ترمیم`)}
             </DialogTitle>
             <DialogDescription>
               {mode === "import"
-                ? "ارفع الأسماء، راجعها، ثم حدد البيانات المشتركة. تستطيع تخصيص الاستثناءات من بطاقة كل عامل بعد الحفظ."
-                : "تُطبق القيم التي تحددها فقط، وتبقى بقية البيانات وارتباطات المشرفين محفوظة."}
+                ? text("ارفع الأسماء، راجعها، ثم حدد البيانات المشتركة. تستطيع تخصيص الاستثناءات من بطاقة كل عامل بعد الحفظ.", "Upload and review names, then choose shared details. Exceptions can be changed in each worker’s profile after saving.", "نام اپ لوڈ اور جانچیں، پھر مشترک تفصیلات منتخب کریں۔ محفوظ کرنے کے بعد ہر پروفائل میں استثنا بدل سکتے ہیں۔")
+                : text("تُطبق القيم التي تحددها فقط، وتبقى بقية البيانات وارتباطات المشرفين محفوظة.", "Only selected values are applied; other details and supervisor assignments remain.", "صرف منتخب اقدار لاگو ہوں گی؛ باقی تفصیلات اور سپروائزر کی ذمہ داریاں برقرار رہیں گی۔")}
             </DialogDescription>
           </DialogHeader>
           {mode === "import" && (
             <div className="flex flex-wrap items-center gap-3">
               <Input
                 type="file"
-                aria-label="ملف أسماء العمال"
+                aria-label={text("ملف أسماء العمال", "Worker names file", "کارکنوں کے ناموں کی فائل")}
                 accept=".csv,.tsv"
                 disabled={busy || started}
                 className="min-w-56 flex-1"
@@ -382,12 +387,10 @@ export function WorkerBatchTools({
               />
               <Button variant="outline" onClick={downloadTemplate}>
                 <Download className="ml-2 h-4 w-4" />
-                تحميل القالب
+                {text("تحميل القالب", "Download template", "ٹیمپلیٹ ڈاؤن لوڈ کریں")}
               </Button>
               <p className="w-full text-xs text-muted-foreground">
-                CSV / TSV بترميز UTF-8، حتى 500 عامل. الأعمدة: الرقم الوظيفي،
-                الاسم بالعربية، رقم البصمة ورقم الهاتف (اختياريان).
-                احفظ أرقام الهاتف كنص في Excel للحفاظ على الصفر في البداية.
+                {text("CSV / TSV بترميز UTF-8، حتى 500 عامل. الأعمدة: الرقم الوظيفي، الاسم بالعربية، رقم البصمة ورقم الهاتف (اختياريان). احفظ أرقام الهاتف كنص في Excel للحفاظ على الصفر في البداية.", "UTF-8 CSV / TSV, up to 500 workers. Columns: employee ID, Arabic name, fingerprint ID and phone (last two optional). Save phone numbers as text in Excel to keep leading zeros.", "UTF-8 CSV / TSV، زیادہ سے زیادہ 500 کارکن۔ کالم: ملازم نمبر، عربی نام، فنگر پرنٹ نمبر اور فون (آخری دو اختیاری)۔ شروع کا صفر رکھنے کے لیے Excel میں فون نمبر متن کے طور پر محفوظ کریں۔")}
               </p>
             </div>
           )}
@@ -396,7 +399,7 @@ export function WorkerBatchTools({
             className="grid gap-4 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-3"
           >
             <div className="space-y-2">
-              <Label>القسم {mode === "bulk" && "(اختياري)"}</Label>
+              <Label>{text("القسم", "Department", "شعبہ")} {mode === "bulk" && text("(اختياري)", "(optional)", "(اختیاری)")}</Label>
               <Select
                 value={departmentId}
                 onValueChange={(value) => {
@@ -407,7 +410,7 @@ export function WorkerBatchTools({
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      mode === "bulk" ? "إبقاء القسم الحالي" : "اختر القسم"
+                      mode === "bulk" ? text("إبقاء القسم الحالي", "Keep current department", "موجودہ شعبہ برقرار رکھیں") : text("اختر القسم", "Select department", "شعبہ منتخب کریں")
                     }
                   />
                 </SelectTrigger>
@@ -417,14 +420,14 @@ export function WorkerBatchTools({
                       key={department.id}
                       value={String(department.id)}
                     >
-                      {normalizeDigits(department.nameAr)}
+                      {normalizeDigits(localizedName(department, language))}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>المسمى الوظيفي</Label>
+              <Label>{text("المسمى الوظيفي", "Job title", "عہدہ")}</Label>
               <Select
                 value={jobTitleId}
                 disabled={!departmentId}
@@ -433,14 +436,14 @@ export function WorkerBatchTools({
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      departmentId ? "اختر المسمى" : "اختر القسم أولًا"
+                      departmentId ? text("اختر المسمى", "Select job title", "عہدہ منتخب کریں") : text("اختر القسم أولًا", "Select department first", "پہلے شعبہ منتخب کریں")
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {jobs.data?.map((job) => (
                     <SelectItem key={job.id} value={String(job.id)}>
-                      {normalizeDigits(job.titleAr)}
+                      {normalizeDigits(localizedJobTitle(job, language))}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -450,38 +453,38 @@ export function WorkerBatchTools({
                 !jobs.data?.length &&
                 !jobs.isError && (
                   <p className="text-xs text-destructive">
-                    لا توجد مسميات لهذا القسم.{" "}
+                    {text("لا توجد مسميات لهذا القسم.", "No job titles exist for this department.", "اس شعبے کے لیے کوئی عہدہ نہیں۔")}{" "}
                     <a
                       className="underline"
                       href="/settings?section=job-titles"
                     >
-                      إضافة مسمى من التهيئة
+                      {text("إضافة مسمى من التهيئة", "Add a job title in setup", "ترتیبات میں عہدہ شامل کریں")}
                     </a>
                   </p>
                 )}
             </div>
             <div className="space-y-2">
-              <Label>مركز التكلفة</Label>
+              <Label>{text("مركز التكلفة", "Cost center", "لاگت مرکز")}</Label>
               <Select value={branch} onValueChange={setBranch}>
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      mode === "bulk" ? "إبقاء المركز الحالي" : "اختياري"
+                      mode === "bulk" ? text("إبقاء المركز الحالي", "Keep current center", "موجودہ مرکز برقرار رکھیں") : text("اختياري", "Optional", "اختیاری")
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">غير محدد</SelectItem>
+                  <SelectItem value="none">{text("غير محدد", "Not set", "مقرر نہیں")}</SelectItem>
                   {branches.data?.map((branch) => (
                     <SelectItem key={branch.id} value={branch.code}>
-                      {normalizeDigits(branch.nameAr)}
+                      {normalizeDigits(localizedName(branch, language))}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>الساعات اليومية</Label>
+              <Label>{text("الساعات اليومية", "Daily hours", "روزانہ اوقات")}</Label>
               <Input
                 type="number"
                 min="0.5"
@@ -490,24 +493,24 @@ export function WorkerBatchTools({
                 value={hours}
                 onChange={(event) => setHours(event.target.value)}
                 placeholder={
-                  mode === "bulk" ? "إبقاء الساعات الحالية" : "أدخل ساعات العمل"
+                  mode === "bulk" ? text("إبقاء الساعات الحالية", "Keep current hours", "موجودہ اوقات برقرار رکھیں") : text("أدخل ساعات العمل", "Enter work hours", "کام کے اوقات درج کریں")
                 }
               />
             </div>
             <div className="space-y-2">
-              <Label>يوم الراحة</Label>
+              <Label>{text("يوم الراحة", "Rest day", "آرام کا دن")}</Label>
               <Select value={restDay} onValueChange={setRestDay}>
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      mode === "bulk" ? "إبقاء اليوم الحالي" : "اختر اليوم"
+                      mode === "bulk" ? text("إبقاء اليوم الحالي", "Keep current day", "موجودہ دن برقرار رکھیں") : text("اختر اليوم", "Select day", "دن منتخب کریں")
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {[6, 0, 1, 2, 3, 4, 5].map((day) => (
                     <SelectItem key={day} value={String(day)}>
-                      {weekdays[day]}
+                      {dayLabel(day)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -515,7 +518,7 @@ export function WorkerBatchTools({
             </div>
             {mode === "import" && (
               <div className="space-y-2">
-                <Label>تاريخ التعيين للمجموعة (اختياري)</Label>
+                <Label>{text("تاريخ التعيين للمجموعة (اختياري)", "Group hire date (optional)", "گروپ کی ملازمت کی تاریخ (اختیاری)")}</Label>
                 <Input
                   type="date"
                   value={hireDate}
@@ -524,7 +527,7 @@ export function WorkerBatchTools({
               </div>
             )}
             <div className="space-y-2 sm:col-span-2 lg:col-span-3">
-              <Label>المشرفون الذين تريد إضافتهم</Label>
+              <Label>{text("المشرفون الذين تريد إضافتهم", "Supervisors to add", "شامل کیے جانے والے سپروائزر")}</Label>
               <div className="flex flex-wrap gap-4">
                 {supervisors.data
                   ?.filter((supervisor) => supervisor.isActive)
@@ -548,8 +551,7 @@ export function WorkerBatchTools({
                   ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                الإضافة تحافظ على المشرفين الحاليين. لإنهاء ربط مشرف بعامل معين،
-                افتح بطاقة العامل.
+                {text("الإضافة تحافظ على المشرفين الحاليين. لإنهاء ربط مشرف بعامل معين، افتح بطاقة العامل.", "Adding supervisors retains existing assignments. To end an assignment, open the worker’s profile.", "سپروائزر شامل کرنے سے موجودہ ذمہ داریاں برقرار رہیں گی۔ ذمہ داری ختم کرنے کے لیے کارکن کا پروفائل کھولیں۔")}
               </p>
             </div>
           </fieldset>
@@ -569,14 +571,13 @@ export function WorkerBatchTools({
           {mode === "import" && !!rows.length && (
             <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border p-3">
               <p className="text-sm font-semibold">
-                معاينة {rows.length} عاملًا — يمكن تصحيح الأسماء والأرقام قبل
-                الحفظ
+                {text(`معاينة ${rows.length} عاملًا — يمكن تصحيح الأسماء والأرقام قبل الحفظ`, `Preview ${rows.length} workers — names and numbers can be corrected before saving`, `${rows.length} کارکنوں کا پیش نظارہ — محفوظ کرنے سے پہلے نام اور نمبر درست کیے جا سکتے ہیں`)}
               </p>
               {rows.map((row, index) => (
                 <div key={index} className="space-y-1 rounded-lg border p-2">
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     <Input
-                      aria-label={`الرقم الوظيفي للسطر ${index + 1}`}
+                      aria-label={text(`الرقم الوظيفي للسطر ${index + 1}`, `Employee ID for row ${index + 1}`, `سطر ${index + 1} کا ملازم نمبر`)}
                       dir="ltr"
                       value={row.employeeId}
                       disabled={busy || !!progress[index]?.workerId}
@@ -585,7 +586,7 @@ export function WorkerBatchTools({
                       }
                     />
                     <Input
-                      aria-label={`اسم العامل في السطر ${index + 1}`}
+                      aria-label={text(`اسم العامل في السطر ${index + 1}`, `Worker name for row ${index + 1}`, `سطر ${index + 1} کا کارکن نام`)}
                       value={row.nameAr}
                       disabled={busy || !!progress[index]?.workerId}
                       onChange={(event) =>
@@ -593,7 +594,7 @@ export function WorkerBatchTools({
                       }
                     />
                     <Input
-                      aria-label={`رقم البصمة للسطر ${index + 1}`}
+                      aria-label={text(`رقم البصمة للسطر ${index + 1}`, `Fingerprint ID for row ${index + 1}`, `سطر ${index + 1} کا فنگر پرنٹ نمبر`)}
                       value={row.fingerprintId ?? ""}
                       disabled={busy || !!progress[index]?.workerId}
                       onChange={(event) =>
@@ -604,10 +605,10 @@ export function WorkerBatchTools({
                       type="tel"
                       inputMode="tel"
                       autoComplete="off"
-                      aria-label={`رقم هاتف العامل للسطر ${index + 1}`}
+                      aria-label={text(`رقم هاتف العامل للسطر ${index + 1}`, `Phone number for row ${index + 1}`, `سطر ${index + 1} کا فون نمبر`)}
                       dir="ltr"
                       maxLength={32}
-                      placeholder="رقم الهاتف (اختياري)"
+                      placeholder={text("رقم الهاتف (اختياري)", "Phone number (optional)", "فون نمبر (اختیاری)")}
                       value={row.phoneNumber ?? ""}
                       disabled={busy || !!progress[index]?.workerId}
                       onChange={(event) =>
@@ -624,7 +625,7 @@ export function WorkerBatchTools({
                   )}
                   {progress[index]?.done && (
                     <p className="text-xs text-emerald-600">
-                      تم الحفظ — يمكن فتح بطاقة العامل من القائمة.
+                      {text("تم الحفظ — يمكن فتح بطاقة العامل من القائمة.", "Saved — the worker profile can be opened from the list.", "محفوظ ہو گیا — فہرست سے کارکن کا پروفائل کھولا جا سکتا ہے۔")}
                     </p>
                   )}
                 </div>
@@ -635,8 +636,8 @@ export function WorkerBatchTools({
             <div className="max-h-40 space-y-2 overflow-y-auto">
               {selected.map((worker, index) => (
                 <p key={worker.id} className="text-sm">
-                  {normalizeDigits(worker.nameAr)}
-                  {progress[index]?.done ? " — تم الحفظ" : ""}
+                  {normalizeDigits(localizedName(worker, language))}
+                  {progress[index]?.done ? text(" — تم الحفظ", " — Saved", " — محفوظ ہو گیا") : ""}
                   {progress[index]?.error && (
                     <span className="mr-2 text-destructive">
                       {normalizeDigits(progress[index].error ?? "")}
@@ -653,8 +654,7 @@ export function WorkerBatchTools({
           )}
           {started && (
             <p className="text-xs text-muted-foreground">
-              حُفظت نتائج السطور أعلاه. إعادة المحاولة تُكمل السطور المتعثرة فقط
-              بنفس البيانات.
+              {text("حُفظت نتائج السطور أعلاه. إعادة المحاولة تُكمل السطور المتعثرة فقط بنفس البيانات.", "The results above were saved. Retrying completes only unfinished rows with the same data.", "اوپر کی سطروں کے نتائج محفوظ ہیں۔ دوبارہ کوشش صرف نامکمل سطروں کو انہی معلومات سے مکمل کرے گی۔")}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -671,19 +671,19 @@ export function WorkerBatchTools({
             >
               {busy && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
               {busy
-                ? "جارٍ حفظ المجموعة..."
+                ? text("جارٍ حفظ المجموعة...", "Saving group...", "گروپ محفوظ ہو رہا ہے...")
                 : started
-                  ? "استكمال السطور غير المكتملة"
+                  ? text("استكمال السطور غير المكتملة", "Complete unfinished rows", "نامکمل سطریں مکمل کریں")
                   : mode === "import"
-                    ? "استيراد وحفظ المجموعة"
-                    : "تطبيق التعديلات"}
+                    ? text("استيراد وحفظ المجموعة", "Import and save group", "گروپ درآمد اور محفوظ کریں")
+                    : text("تطبيق التعديلات", "Apply changes", "تبدیلیاں لاگو کریں")}
             </Button>
             <Button
               disabled={busy}
               variant="outline"
               onClick={() => setMode(null)}
             >
-              إغلاق
+              {text("إغلاق", "Close", "بند کریں")}
             </Button>
           </div>
         </DialogContent>

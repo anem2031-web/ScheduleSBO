@@ -26,6 +26,7 @@ export function riyadhTime(value: Date | string | null | undefined) {
     "ar-SA",
   );
 }
-export function hoursLabel(value: number | null | undefined) {
-  return value == null ? "—" : `${Number(value.toFixed(2))} س`;
+export function hoursLabel(value: number | null | undefined, language: "ar" | "en" | "ur" = "ar") {
+  const unit = { ar: "س", en: "h", ur: "گھنٹے" }[language];
+  return value == null ? "—" : `${Number(value.toFixed(2))} ${unit}`;
 }

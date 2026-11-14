@@ -1,4 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { useLanguage } from "@/lib/i18n";
+import { demoPageText } from "@/lib/demo-pages-text";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +13,8 @@ import { Download, Plus } from "lucide-react";
  * إدارة الرواتب والخصومات والمستحقات
  */
 export default function Payroll() {
+  const { language } = useLanguage();
+  const tr = (value: string) => demoPageText(value, language);
   const payrollData = [
     {
       id: 1,
@@ -62,20 +66,21 @@ export default function Payroll() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6" dir={language === "en" ? "ltr" : "rtl"}>
+        <p role="note" className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">{tr("عرض توضيحي: البيانات والأزرار في هذه الصفحة تجريبية وليست بيانات تشغيلية.")}</p>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">الرواتب والمستحقات</h1>
-            <p className="text-gray-600 mt-1">إدارة الرواتب والخصومات والمستحقات</p>
+            <h1 className="text-3xl font-bold text-gray-900">{tr("الرواتب والمستحقات")}</h1>
+            <p className="text-gray-600 mt-1">{tr("إدارة الرواتب والخصومات والمستحقات")}</p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" />
-              تصدير
+              {tr("تصدير")}
             </Button>
             <Button className="gap-2">
               <Plus className="w-4 h-4" />
-              دورة رواتب جديدة
+              {tr("دورة رواتب جديدة")}
             </Button>
           </div>
         </div>
@@ -84,31 +89,31 @@ export default function Payroll() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">إجمالي الرواتب</p>
-                <p className="text-3xl font-bold mt-2">16,200 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("إجمالي الرواتب")}</p>
+                <p className="text-3xl font-bold mt-2">16,200  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">المدفوعة</p>
-                <p className="text-3xl font-bold mt-2">11,200 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("المدفوعة")}</p>
+                <p className="text-3xl font-bold mt-2">11,200  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">المعلقة</p>
-                <p className="text-3xl font-bold mt-2">5,000 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("المعلقة")}</p>
+                <p className="text-3xl font-bold mt-2">5,000  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">معدل الصرف</p>
+                <p className="text-sm text-gray-600">{tr("معدل الصرف")}</p>
                 <p className="text-3xl font-bold mt-2">69%</p>
               </div>
             </CardContent>
@@ -117,43 +122,43 @@ export default function Payroll() {
 
         <Tabs defaultValue="current" className="w-full">
           <TabsList>
-            <TabsTrigger value="current">الدورة الحالية</TabsTrigger>
-            <TabsTrigger value="history">السجل التاريخي</TabsTrigger>
-            <TabsTrigger value="deductions">الخصومات</TabsTrigger>
+            <TabsTrigger value="current">{tr("الدورة الحالية")}</TabsTrigger>
+            <TabsTrigger value="history">{tr("السجل التاريخي")}</TabsTrigger>
+            <TabsTrigger value="deductions">{tr("الخصومات")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="current" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>دورة الرواتب الحالية - يوليو 2026</CardTitle>
-                <CardDescription>بيان الرواتب والمستحقات</CardDescription>
+                <CardTitle>{tr("دورة الرواتب الحالية - يوليو 2026")}</CardTitle>
+                <CardDescription>{tr("بيان الرواتب والمستحقات")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>الرقم الوظيفي</TableHead>
-                        <TableHead>الاسم</TableHead>
-                        <TableHead>الراتب الأساسي</TableHead>
-                        <TableHead>البدلات</TableHead>
-                        <TableHead>الخصومات</TableHead>
-                        <TableHead>الراتب الصافي</TableHead>
-                        <TableHead>الحالة</TableHead>
+                        <TableHead>{tr("الرقم الوظيفي")}</TableHead>
+                        <TableHead>{tr("الاسم")}</TableHead>
+                        <TableHead>{tr("الراتب الأساسي")}</TableHead>
+                        <TableHead>{tr("البدلات")}</TableHead>
+                        <TableHead>{tr("الخصومات")}</TableHead>
+                        <TableHead>{tr("الراتب الصافي")}</TableHead>
+                        <TableHead>{tr("الحالة")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {payrollData.map((payroll) => (
                         <TableRow key={payroll.id}>
                           <TableCell className="font-medium">{payroll.employeeId}</TableCell>
-                          <TableCell>{payroll.name}</TableCell>
-                          <TableCell>{payroll.baseSalary} ر.س</TableCell>
-                          <TableCell>{payroll.allowances} ر.س</TableCell>
-                          <TableCell>{payroll.deductions} ر.س</TableCell>
-                          <TableCell className="font-semibold">{payroll.netSalary} ر.س</TableCell>
+                          <TableCell>{tr(payroll.name)}</TableCell>
+                          <TableCell>{payroll.baseSalary} {tr("ر.س")}</TableCell>
+                          <TableCell>{payroll.allowances} {tr("ر.س")}</TableCell>
+                          <TableCell>{payroll.deductions} {tr("ر.س")}</TableCell>
+                          <TableCell className="font-semibold">{payroll.netSalary} {tr("ر.س")}</TableCell>
                           <TableCell>
                             <Badge className={getStatusColor(payroll.status)}>
-                              {payroll.status}
+                              {tr(payroll.status)}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -168,10 +173,10 @@ export default function Payroll() {
           <TabsContent value="history">
             <Card>
               <CardHeader>
-                <CardTitle>السجل التاريخي للرواتب</CardTitle>
+                <CardTitle>{tr("السجل التاريخي للرواتب")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-600">سيتم عرض السجل التاريخي للرواتب هنا</p>
+                <p className="text-gray-600">{tr("سيتم عرض السجل التاريخي للرواتب هنا")}</p>
               </CardContent>
             </Card>
           </TabsContent>
@@ -179,10 +184,10 @@ export default function Payroll() {
           <TabsContent value="deductions">
             <Card>
               <CardHeader>
-                <CardTitle>الخصومات والاستقطاعات</CardTitle>
+                <CardTitle>{tr("الخصومات والاستقطاعات")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-600">سيتم عرض الخصومات والاستقطاعات هنا</p>
+                <p className="text-gray-600">{tr("سيتم عرض الخصومات والاستقطاعات هنا")}</p>
               </CardContent>
             </Card>
           </TabsContent>

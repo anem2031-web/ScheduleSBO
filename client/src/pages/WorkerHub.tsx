@@ -43,6 +43,8 @@ import { riyadhDateKey } from "@/lib/operational-date";
 import { formatDateTime, normalizeDigits } from "@shared/display-format";
 import { workerLanguageLabel } from "@shared/worker-languages";
 import { permits } from "@shared/access-control";
+import { useLanguage, type Language } from "@/lib/i18n";
+import { localizedName, localizedJobTitle } from "@/lib/localized-data";
 
 const WEEKDAY_LABELS = [
   "الأحد",
@@ -53,12 +55,6 @@ const WEEKDAY_LABELS = [
   "الجمعة",
   "السبت",
 ];
-const statusLabels = {
-  active: "نشط",
-  inactive: "غير نشط",
-  on_leave: "إجازة",
-  terminated: "منتهي الخدمة",
-};
 function todayStr() {
   return riyadhDateKey();
 }
@@ -76,12 +72,15 @@ function formatDate(value: string | Date | null | undefined) {
       )
     : "غير مسجل";
 }
-function minutesToHoursLabel(min: number) {
+function minutesToHoursLabel(min: number, language: Language = "ar") {
   const value = Math.round(Math.abs(min));
-  return `${min < 0 ? "-" : ""}${Math.floor(value / 60)}س${value % 60 ? ` ${value % 60}د` : ""}`;
+  const unit = { ar: ["س", "د"], en: ["h", "m"], ur: ["گھنٹے", "منٹ"] }[language];
+  return `${min < 0 ? "-" : ""}${Math.floor(value / 60)} ${unit[0]}${value % 60 ? ` ${value % 60} ${unit[1]}` : ""}`;
 }
 
 export default function WorkerHub() {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const [, params] = useRoute("/workers/:id");
   const [, navigate] = useLocation();
   const { user } = useAuth();
@@ -110,14 +109,14 @@ export default function WorkerHub() {
       <DashboardLayout>
         <Card>
           <CardHeader>
-            <CardTitle>بطاقة العامل</CardTitle>
+            <CardTitle>{text("بطاقة العامل", "Worker profile", "کارکن کا پروفائل")}</CardTitle>
             <CardDescription>
-              {workerQuery.error?.message ?? "اختر عاملًا من قائمة العمال."}
+              {workerQuery.error?.message ?? text("اختر عاملًا من قائمة العمال.", "Select a worker from the worker list.", "کارکنوں کی فہرست سے ایک کارکن منتخب کریں۔")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => navigate("/workers")}>
-              فتح قائمة العمال
+              {text("فتح قائمة العمال", "Open worker list", "کارکنوں کی فہرست کھولیں")}
             </Button>
           </CardContent>
         </Card>
@@ -133,25 +132,25 @@ export default function WorkerHub() {
     );
   return (
     <DashboardLayout>
-      <div className="space-y-5" dir="rtl">
+      <div className="space-y-5" dir={language === "en" ? "ltr" : "rtl"}>
         <Button variant="outline" onClick={() => navigate("/workers")}>
           <ArrowRight className="ml-2 h-4 w-4" />
-          العودة إلى العمال
+          {text("العودة إلى العمال", "Back to workers", "کارکنوں پر واپس جائیں")}
         </Button>
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-2xl">
-                {normalizeDigits(worker.nameAr)}
+                {normalizeDigits(localizedName(worker, language))}
               </CardTitle>
               <CardDescription className="mt-2">
                 {normalizeDigits(worker.employeeId)} ·{" "}
-                {normalizeDigits(department?.nameAr ?? "قسم غير محدد")} ·{" "}
-                {job?.titleAr ?? "مسمى غير محدد"}
+                {normalizeDigits(department ? localizedName(department, language) : text("قسم غير محدد", "Department not set", "شعبہ مقرر نہیں"))} ·{" "}
+                {job ? localizedJobTitle(job, language) : text("مسمى غير محدد", "Job title not set", "عہدہ مقرر نہیں")}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{statusLabels[worker.status]}</Badge>
+              <Badge variant="secondary">{worker.status === "active" ? text("نشط", "Active", "فعال") : worker.status === "inactive" ? text("غير نشط", "Inactive", "غیر فعال") : worker.status === "on_leave" ? text("إجازة", "On leave", "چھٹی پر") : text("منتهي الخدمة", "Employment ended", "ملازمت ختم")}</Badge>
               <WorkerArchiveAction
                 worker={worker}
                 variant="outline"
@@ -162,15 +161,15 @@ export default function WorkerHub() {
             </div>
           </CardHeader>
         </Card>
-        <Tabs dir="rtl" value={activeTab} onValueChange={setActiveTab}>
+        <Tabs dir={language === "en" ? "ltr" : "rtl"} value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid h-auto w-full grid-cols-2">
             <TabsTrigger value="duty" className="gap-2 py-3">
               <Clock3 className="h-4 w-4" />
-              الدوام
+              {text("الدوام", "Work schedule", "اوقات کار")}
             </TabsTrigger>
             <TabsTrigger value="profile" className="gap-2 py-3">
               <User className="h-4 w-4" />
-              البيانات والارتباطات
+              {text("البيانات والارتباطات", "Details and assignments", "تفصیلات اور ذمہ داریاں")}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="duty" className="space-y-5 pt-3">
@@ -181,7 +180,7 @@ export default function WorkerHub() {
             />
             <details className="rounded-xl border bg-card p-4">
               <summary className="cursor-pointer font-semibold">
-                الجدول المسجل للعامل
+                {text("الجدول المسجل للعامل", "Worker’s recorded schedule", "کارکن کا درج شدہ شیڈول")}
               </summary>
               <div className="mt-4">
                 <WorkerAssignmentsCard workerId={workerId} />
@@ -189,22 +188,21 @@ export default function WorkerHub() {
             </details>
             <details className="rounded-xl border bg-card p-4">
               <summary className="cursor-pointer font-semibold">
-                سجل الحضور والانصراف
+                {text("سجل الحضور والانصراف", "Attendance history", "حاضری کی تاریخ")}
               </summary>
               <div className="mt-4">
                 {canManage ? (
                   <WorkerAttendanceHistory workerId={workerId} />
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    الساعات الفعلية ظاهرة في ملخص الدوام. فتح سجلات البصمة
-                    التفصيلية متاح للشؤون الإدارية حسب الصلاحية الحالية.
+                    {text("الساعات الفعلية ظاهرة في ملخص الدوام. فتح سجلات البصمة التفصيلية متاح للشؤون الإدارية حسب الصلاحية الحالية.", "Actual hours appear in the work summary. Detailed clock records are available to administration according to permissions.", "اصل اوقات خلاصے میں موجود ہیں۔ تفصیلی حاضری ریکارڈ اجازت کے مطابق انتظامیہ کے لیے دستیاب ہے۔")}
                   </p>
                 )}
               </div>
             </details>
             <details className="rounded-xl border bg-card p-4">
               <summary className="cursor-pointer font-semibold">
-                الإجازات
+                {text("الإجازات", "Leave", "چھٹیاں")}
               </summary>
               <div className="mt-4">
                 <WorkerAbsences workerId={workerId} />
@@ -215,7 +213,7 @@ export default function WorkerHub() {
           <TabsContent value="profile" className="space-y-5 pt-3">
             <Card>
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-                <CardTitle>بيانات العامل</CardTitle>
+                <CardTitle>{text("بيانات العامل", "Worker details", "کارکن کی تفصیلات")}</CardTitle>
                 {canManage && (
                   <Button
                     size="sm"
@@ -223,31 +221,31 @@ export default function WorkerHub() {
                     onClick={() => navigate(`/workers?edit=${worker.id}`)}
                   >
                     <Edit className="ml-2 h-4 w-4" />
-                    تعديل البيانات
+                    {text("تعديل البيانات", "Edit details", "تفصیلات میں ترمیم")}
                   </Button>
                 )}
               </CardHeader>
               <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {[
-                  ["الرقم الوظيفي", worker.employeeId],
-                  ["رقم البصمة", worker.fingerprintId],
-                  ["رقم هاتف العامل", worker.phoneNumber],
-                  ["الاسم بالعربية", worker.nameAr],
-                  ["الاسم بالإنجليزية", worker.nameEn],
-                  ["الجنسية", worker.nationality],
-                  ["لغة التواصل", workerLanguageLabel(worker.preferredLanguage)],
-                  ["موقع العمل", reference.data?.locations.find(location => location.id === worker.locationId)?.nameAr],
-                  ["تاريخ التعيين", formatDate(worker.hireDate)],
-                  ["القسم", department?.nameAr],
-                  ["المسمى الوظيفي", job?.titleAr],
+                  [text("الرقم الوظيفي", "Employee ID", "ملازم نمبر"), worker.employeeId],
+                  [text("رقم البصمة", "Fingerprint ID", "فنگر پرنٹ نمبر"), worker.fingerprintId],
+                  [text("رقم هاتف العامل", "Worker phone number", "کارکن کا فون نمبر"), worker.phoneNumber],
+                  [text("الاسم بالعربية", "Name in Arabic", "عربی میں نام"), worker.nameAr],
+                  [text("الاسم بالإنجليزية", "Name in English", "انگریزی میں نام"), worker.nameEn],
+                  [text("الجنسية", "Nationality", "قومیت"), worker.nationality],
+                  [text("لغة التواصل", "Communication language", "رابطے کی زبان"), workerLanguageLabel(worker.preferredLanguage)],
+                  [text("موقع العمل", "Work location", "کام کی جگہ"), (() => { const location = reference.data?.locations.find(item => item.id === worker.locationId); return location ? localizedName(location, language) : undefined; })()],
+                  [text("تاريخ التعيين", "Hire date", "ملازمت کی تاریخ"), worker.hireDate ? formatDate(worker.hireDate) : ""],
+                  [text("القسم", "Department", "شعبہ"), department ? localizedName(department, language) : ""],
+                  [text("المسمى الوظيفي", "Job title", "عہدہ"), job ? localizedJobTitle(job, language) : ""],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-lg border p-3">
                     <p className="text-xs text-muted-foreground">{label}</p>
                     <p
                       className="mt-2 font-medium"
-                      dir={label === "رقم هاتف العامل" ? "ltr" : undefined}
+                      dir={label === text("رقم هاتف العامل", "Worker phone number", "کارکن کا فون نمبر") ? "ltr" : undefined}
                     >
-                      {normalizeDigits(value || "غير مسجل")}
+                      {normalizeDigits(value || text("غير مسجل", "Not set", "درج نہیں"))}
                     </p>
                   </div>
                 ))}
@@ -270,6 +268,8 @@ export default function WorkerHub() {
 }
 
 function WorkerOrganizationPath({ departmentId }: { departmentId: number }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const branches = trpc.orgStructure.listBranches.useQuery({
     activeOnly: true,
   });
@@ -299,21 +299,21 @@ function WorkerOrganizationPath({ departmentId }: { departmentId: number }) {
             branches.data?.find((branch) => branch.id === item.branchId) ?? [],
         );
       return centers.length
-        ? centers.map((center) => `${center.nameAr} ← ${location.nameAr}`)
-        : [location.nameAr];
+        ? centers.map((center) => `${localizedName(center, language)} / ${localizedName(location, language)}`)
+        : [localizedName(location, language)];
     });
   return (
     <Card>
       <CardHeader>
-        <CardTitle>المراكز والمواقع المرتبطة بالقسم</CardTitle>
+        <CardTitle>{text("المراكز والمواقع المرتبطة بالقسم", "Cost centers and locations linked to the department", "شعبے سے منسلک لاگت مراکز اور مقامات")}</CardTitle>
         <CardDescription>
-          تُستنتج من الهيكل التشغيلي. القسم المشترك قد يظهر في أكثر من موقع.
+          {text("تُستنتج من الهيكل التشغيلي. القسم المشترك قد يظهر في أكثر من موقع.", "Derived from the organization structure. A shared department may appear in multiple locations.", "تنظیمی ڈھانچے سے اخذ کیا گیا۔ مشترک شعبہ کئی مقامات پر ظاہر ہو سکتا ہے۔")}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {errors.length ? (
           <p className="text-sm text-destructive">
-            تعذر تحميل الهيكل التشغيلي.
+            {text("تعذر تحميل الهيكل التشغيلي.", "Could not load the organization structure.", "تنظیمی ڈھانچہ لوڈ نہیں ہو سکا۔")}
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -325,7 +325,7 @@ function WorkerOrganizationPath({ departmentId }: { departmentId: number }) {
               ))
             ) : (
               <p className="text-sm text-muted-foreground">
-                لم يُربط هذا القسم بموقع بعد. يمكن استكمال الربط من التهيئة.
+                {text("لم يُربط هذا القسم بموقع بعد. يمكن استكمال الربط من التهيئة.", "This department is not linked to a location yet. Complete the link in setup.", "یہ شعبہ ابھی کسی مقام سے منسلک نہیں۔ ترتیبات میں ربط مکمل کریں۔")}
               </p>
             )}
           </div>
@@ -344,6 +344,8 @@ function WorkerTimelineCard({
   canManage: boolean;
   onSetup: () => void;
 }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const [date, setDate] = useState(todayStr);
   const query = trpc.schedules.getWorkerTimeline.useQuery(
     { workerId, refDate: date },
@@ -355,14 +357,13 @@ function WorkerTimelineCard({
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <CardTitle>ملخص الدوام</CardTitle>
+            <CardTitle>{text("ملخص الدوام", "Work summary", "اوقات کار کا خلاصہ")}</CardTitle>
             <CardDescription className="mt-2">
-              الأسبوع من الأحد إلى السبت. الراحة نصف ساعة منفصلة عن ساعات
-              العمل.
+              {text("الأسبوع من الأحد إلى السبت. الراحة نصف ساعة منفصلة عن ساعات العمل.", "The week runs Sunday to Saturday. The half-hour break is separate from work hours.", "ہفتہ اتوار سے ہفتہ تک ہے۔ آدھے گھنٹے کا وقفہ کام کے اوقات سے الگ ہے۔")}
             </CardDescription>
           </div>
           <Input
-            aria-label="تاريخ ملخص الدوام"
+            aria-label={text("تاريخ ملخص الدوام", "Work summary date", "اوقات کے خلاصے کی تاریخ")}
             type="date"
             className="w-auto"
             value={date}
@@ -379,10 +380,10 @@ function WorkerTimelineCard({
           </p>
         ) : !data?.hasCard ? (
           <div className="rounded-lg border border-dashed p-5">
-            <p>أكمل ساعات العامل ويوم راحته لعرض الرصيد.</p>
+            <p>{text("أكمل ساعات العامل ويوم راحته لعرض الرصيد.", "Set the worker’s hours and rest day to view the balance.", "اوقات دیکھنے کے لیے کارکن کے اوقات اور آرام کا دن مقرر کریں۔")}</p>
             {canManage && (
               <Button className="mt-3" onClick={onSetup}>
-                إعداد ساعات العامل
+                {text("إعداد ساعات العامل", "Set worker hours", "کارکن کے اوقات مقرر کریں")}
               </Button>
             )}
           </div>
@@ -391,15 +392,15 @@ function WorkerTimelineCard({
             {(data.isRestDayToday || data.isOnLeaveToday) && (
               <Badge variant="secondary">
                 {data.nonWorkingDayLabel ??
-                  (data.isOnLeaveToday ? "إجازة مسجلة" : "راحة أسبوعية")}{" "}
-                — لا توجد ساعات مطلوبة لهذا اليوم
+                  (data.isOnLeaveToday ? text("إجازة مسجلة", "Recorded leave", "درج شدہ چھٹی") : text("راحة أسبوعية", "Weekly rest", "ہفتہ وار آرام"))}{" "}
+                — {text("لا توجد ساعات مطلوبة لهذا اليوم", "No hours required today", "آج کوئی اوقات مطلوب نہیں")}
               </Badge>
             )}
             <div className="grid gap-4 md:grid-cols-3">
               {[
-                { label: "اليوم", value: data.day },
-                { label: "الأسبوع", value: data.week },
-                { label: "الشهر", value: data.month },
+                { label: text("اليوم", "Today", "آج"), value: data.day },
+                { label: text("الأسبوع", "Week", "ہفتہ"), value: data.week },
+                { label: text("الشهر", "Month", "مہینہ"), value: data.month },
               ].map(({ label, value }) => (
                 <div className="rounded-lg border p-4" key={label}>
                   <h3 className="font-semibold">{label}</h3>
@@ -416,15 +417,15 @@ function WorkerTimelineCard({
                     }
                   />
                   <dl className="grid grid-cols-2 gap-2 text-sm">
-                    <dt className="text-muted-foreground">المطلوب</dt>
-                    <dd>{minutesToHoursLabel(value.requiredMinutes)}</dd>
-                    <dt className="text-muted-foreground">المخطط</dt>
-                    <dd>{minutesToHoursLabel(value.scheduledMinutes)}</dd>
-                    <dt className="text-muted-foreground">الفعلي المسجل</dt>
-                    <dd>{minutesToHoursLabel(value.actualMinutes)}</dd>
-                    <dt className="text-muted-foreground">المعتمد من الحضور</dt>
-                    <dd>{value.approvedMinutes == null ? "—" : minutesToHoursLabel(value.approvedMinutes)}</dd>
-                    <dt className="font-semibold">المتاح للجدولة</dt>
+                    <dt className="text-muted-foreground">{text("المطلوب", "Required", "مطلوب")}</dt>
+                    <dd>{minutesToHoursLabel(value.requiredMinutes, language)}</dd>
+                    <dt className="text-muted-foreground">{text("المخطط", "Planned", "منصوبہ بند")}</dt>
+                    <dd>{minutesToHoursLabel(value.scheduledMinutes, language)}</dd>
+                    <dt className="text-muted-foreground">{text("الفعلي المسجل", "Actual recorded", "درج شدہ اصل")}</dt>
+                    <dd>{minutesToHoursLabel(value.actualMinutes, language)}</dd>
+                    <dt className="text-muted-foreground">{text("المعتمد من الحضور", "Approved attendance", "منظور شدہ حاضری")}</dt>
+                    <dd>{value.approvedMinutes == null ? "—" : minutesToHoursLabel(value.approvedMinutes, language)}</dd>
+                    <dt className="font-semibold">{text("المتاح للجدولة", "Available to schedule", "شیڈول کے لیے دستیاب")}</dt>
                     <dd
                       className={
                         value.scheduledMinutes > value.requiredMinutes
@@ -432,14 +433,14 @@ function WorkerTimelineCard({
                           : "font-semibold text-primary"
                       }
                     >
-                      {minutesToHoursLabel(value.remainingMinutes)}
+                      {minutesToHoursLabel(value.remainingMinutes, language)}
                     </dd>
                   </dl>
                   {value.scheduledMinutes > value.requiredMinutes && (
                     <p className="mt-3 text-xs text-destructive">
-                      المخطط يتجاوز المطلوب بمقدار{" "}
+                      {text("المخطط يتجاوز المطلوب بمقدار", "Planned hours exceed required hours by", "منصوبہ بند اوقات مطلوبہ اوقات سے زیادہ ہیں بمقدار")}{" "}
                       {minutesToHoursLabel(
-                        value.scheduledMinutes - value.requiredMinutes,
+                        value.scheduledMinutes - value.requiredMinutes, language,
                       )}
                     </p>
                   )}
@@ -447,9 +448,7 @@ function WorkerTimelineCard({
               ))}
             </div>
             <p className="text-xs leading-6 text-muted-foreground">
-              الفعلي من سجلات الحضور فقط؛ غياب السجل لا يحوّل الجدول إلى حضور.
-              المعتمد يحتسب الوقت الفعلي داخل الفترات الرسمية، والزيادة الفعلية
-              المقبولة نهائيًا من الشؤون الإدارية فقط، بعد استبعاد الراحة.
+              {text("الفعلي من سجلات الحضور فقط؛ غياب السجل لا يحوّل الجدول إلى حضور. المعتمد يحتسب الوقت الفعلي داخل الفترات الرسمية، والزيادة الفعلية المقبولة نهائيًا من الشؤون الإدارية فقط، بعد استبعاد الراحة.", "Actual hours come only from attendance records. Approved hours count actual time within official shifts and overtime finally approved by administration, excluding breaks.", "اصل اوقات صرف حاضری ریکارڈ سے ہیں۔ منظور شدہ اوقات میں سرکاری شفٹوں کا اصل وقت اور انتظامیہ سے حتمی منظور شدہ اضافی وقت شامل ہے، وقفے کے بغیر۔")}
             </p>
             <WorkerDayTimeline workerId={workerId} date={date} />
           </>

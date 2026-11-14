@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDateTime, normalizeDigits } from "@shared/display-format";
+import { useLanguage, type Language } from "@/lib/i18n";
 import {
   clockRange,
   dayLabel,
@@ -27,22 +28,23 @@ export type OvertimeDecision = {
   note: string;
 };
 
-function historyTitle(event: OvertimeHistory) {
+function historyTitle(event: OvertimeHistory, language: Language) {
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   if (event.action === "reopen" || event.stage === "admin_reopen")
-    return "إعادة فتح الرفض وإرجاعه للشؤون الإدارية";
+    return text("إعادة فتح الرفض وإرجاعه للشؤون الإدارية", "Reopen rejection and return to administration", "مسترد فیصلہ دوبارہ کھول کر انتظامیہ کو واپس بھیجا گیا");
   if (event.stage === "supervisor")
-    return event.approved ? "قبول المشرف المبدئي" : "رفض المشرف";
+    return event.approved ? text("قبول المشرف المبدئي", "Supervisor’s initial acceptance", "سپروائزر کی ابتدائی منظوری") : text("رفض المشرف", "Rejected by supervisor", "سپروائزر نے مسترد کیا");
   if (event.stage === "hr_final")
     return event.approved
-      ? "اعتماد الشؤون الإدارية النهائي"
-      : "رفض الشؤون الإدارية";
+      ? text("اعتماد الشؤون الإدارية النهائي", "Final administrative approval", "انتظامیہ کی حتمی منظوری")
+      : text("رفض الشؤون الإدارية", "Rejected by administration", "انتظامیہ نے مسترد کیا");
   return event.action === "create"
     ? event.approved === true
-      ? "تسجيل الزيادة وقبولها مبدئيًا"
+      ? text("تسجيل الزيادة وقبولها مبدئيًا", "Overtime recorded and initially accepted", "اضافی وقت درج اور ابتدائی طور پر منظور")
       : event.approved === false
-        ? "تسجيل الزيادة ورفضها من المشرف"
-        : "تقديم طلب زيادة لمراجعة المشرف"
-    : "تحديث الطلب";
+        ? text("تسجيل الزيادة ورفضها من المشرف", "Overtime recorded and rejected by supervisor", "اضافی وقت درج اور سپروائزر نے مسترد کیا")
+        : text("تقديم طلب زيادة لمراجعة المشرف", "Overtime submitted for supervisor review", "اضافی وقت سپروائزر کے جائزے کے لیے بھیجا گیا")
+    : text("تحديث الطلب", "Request updated", "درخواست میں تبدیلی");
 }
 
 export function OvertimeDetails({
@@ -56,6 +58,8 @@ export function OvertimeDetails({
   onClose: () => void;
   onDecide: (row: OvertimeRow, decision: OvertimeDecision) => void;
 }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const [approved, setApproved] = useState<boolean | null>(null);
   const [note, setNote] = useState("");
   useEffect(() => {
@@ -77,22 +81,22 @@ export function OvertimeDetails({
   const hasAction = canReview || canDecide || canReopen || canSubmit;
   const chosen = canReopen || canSubmit || approved !== null;
   const label = canReopen
-    ? "سبب إعادة فتح الرفض"
+    ? text("سبب إعادة فتح الرفض", "Reason for reopening the rejection", "مسترد فیصلہ دوبارہ کھولنے کی وجہ")
     : canSubmit
-      ? "سبب طلب مراجعة الزيادة"
+      ? text("سبب طلب مراجعة الزيادة", "Reason for requesting overtime review", "اضافی وقت کے جائزے کی وجہ")
       : approved === false
-        ? "سبب الرفض"
+        ? text("سبب الرفض", "Reason for rejection", "مسترد کرنے کی وجہ")
         : canReview
-          ? "مبرر احتساب الزيادة"
-          : "سبب الاعتماد بعد إعادة فتح الرفض";
+          ? text("مبرر احتساب الزيادة", "Reason for counting overtime", "اضافی وقت شمار کرنے کی وجہ")
+          : text("سبب الاعتماد بعد إعادة فتح الرفض", "Reason for approval after reopening", "دوبارہ کھولنے کے بعد منظوری کی وجہ");
   const facts = row
     ? [
-        ["اليوم والتاريخ", `${dayLabel(row.workDate)} ${row.workDate}`],
-        ["الفترة الأصلية", clockRange(row.assignmentStart, row.assignmentEnd)],
-        ["فترة الزيادة", clockRange(row.extraStart, row.extraEnd)],
-        ["مدة الزيادة", durationLabel(row.minutes)],
-        ["مركز تكلفة الزيادة", row.costCenterName ?? "غير محدد"],
-        ["مشرف الفترة", row.supervisorName ?? "غير مسجل"],
+        [text("اليوم والتاريخ", "Day and date", "دن اور تاریخ"), `${dayLabel(row.workDate, language)} ${row.workDate}`],
+        [text("الفترة الأصلية", "Original shift", "اصل شفٹ"), clockRange(row.assignmentStart, row.assignmentEnd)],
+        [text("فترة الزيادة", "Overtime period", "اضافی وقت کی مدت"), clockRange(row.extraStart, row.extraEnd)],
+        [text("مدة الزيادة", "Overtime duration", "اضافی وقت کا دورانیہ"), durationLabel(row.minutes, language)],
+        [text("مركز تكلفة الزيادة", "Overtime cost center", "اضافی وقت کا لاگت مرکز"), row.costCenterName ?? text("غير محدد", "Not set", "مقرر نہیں")],
+        [text("مشرف الفترة", "Shift supervisor", "شفٹ سپروائزر"), row.supervisorName ?? text("غير مسجل", "Not recorded", "درج نہیں")],
       ]
     : [];
   return (
@@ -103,7 +107,7 @@ export function OvertimeDetails({
       }}
     >
       <DialogContent
-        dir="rtl"
+        dir={language === "en" ? "ltr" : "rtl"}
         className="max-h-[90vh] overflow-y-auto sm:max-w-5xl"
         onInteractOutside={(event) => {
           if (busy) event.preventDefault();
@@ -114,23 +118,22 @@ export function OvertimeDetails({
       >
         <DialogHeader>
           <DialogTitle>
-            {normalizeDigits(row?.name ?? "تفاصيل العمل الإضافي")}
-            {row?.id ? ` · طلب #${row.id}` : " · زيادة فعلية مرصودة"}
+            {normalizeDigits(row?.name ?? text("تفاصيل العمل الإضافي", "Overtime details", "اضافی وقت کی تفصیلات"))}
+            {row?.id ? text(` · طلب #${row.id}`, ` · Request #${row.id}`, ` · درخواست #${row.id}`) : text(" · زيادة فعلية مرصودة", " · Recorded actual overtime", " · درج شدہ حقیقی اضافی وقت")}
           </DialogTitle>
           <DialogDescription>
-            كل زيادة تخص فترة ومركز تكلفة محددين. قبول المشرف مبدئي، والاعتماد
-            النهائي من الشؤون الإدارية.
+            {text("كل زيادة تخص فترة ومركز تكلفة محددين. قبول المشرف مبدئي، والاعتماد النهائي من الشؤون الإدارية.", "Each overtime entry belongs to a specific shift and cost center. Supervisor acceptance is preliminary; administration makes the final decision.", "ہر اضافی وقت ایک مخصوص شفٹ اور لاگت مرکز سے متعلق ہے۔ سپروائزر کی منظوری ابتدائی ہے؛ حتمی فیصلہ انتظامیہ کرتی ہے۔")}
           </DialogDescription>
         </DialogHeader>
         {row && (
           <>
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">
-                {row.kind === "planned" ? "زيادة مخططة" : "زيادة فعلية"}
+                {row.kind === "planned" ? text("زيادة مخططة", "Planned overtime", "منصوبہ بند اضافی وقت") : text("زيادة فعلية", "Actual overtime", "حقیقی اضافی وقت")}
               </Badge>
-              <Badge variant="secondary">{statusLabel(row)}</Badge>
+              <Badge variant="secondary">{statusLabel(row, language)}</Badge>
               <span className="text-xs text-muted-foreground">
-                الرقم الوظيفي: <bdi>{normalizeDigits(row.employeeId)}</bdi>
+                {text("الرقم الوظيفي", "Employee ID", "ملازم نمبر")}: <bdi>{normalizeDigits(row.employeeId)}</bdi>
               </span>
             </div>
             <div className="grid gap-6 lg:grid-cols-2">
@@ -149,8 +152,8 @@ export function OvertimeDetails({
                   <div className="rounded-lg border p-4 text-sm">
                     <p className="font-medium">
                       {row.reviewStatus === "pending"
-                        ? "السبب المسجل للطلب"
-                        : "سبب قرار المشرف"}
+                        ? text("السبب المسجل للطلب", "Recorded request reason", "درخواست کی درج شدہ وجہ")
+                        : text("سبب قرار المشرف", "Reason for supervisor’s decision", "سپروائزر کے فیصلے کی وجہ")}
                     </p>
                     <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
                       {normalizeDigits(row.reviewNote ?? row.reason ?? "")}
@@ -159,7 +162,7 @@ export function OvertimeDetails({
                 )}
                 {row.decisionNote && (
                   <div className="rounded-lg border p-4 text-sm">
-                    <p className="font-medium">سبب قرار الشؤون الإدارية</p>
+                    <p className="font-medium">{text("سبب قرار الشؤون الإدارية", "Reason for administrative decision", "انتظامیہ کے فیصلے کی وجہ")}</p>
                     <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
                       {normalizeDigits(row.decisionNote)}
                     </p>
@@ -181,14 +184,14 @@ export function OvertimeDetails({
                   >
                     <h3 className="text-sm font-semibold">
                       {canReopen
-                        ? "تدخل الأدمن"
+                        ? text("تدخل الأدمن", "Administrator intervention", "ایڈمن کی مداخلت")
                         : canSubmit
-                          ? "إرسال الزيادة لمراجعة المشرف"
+                          ? text("إرسال الزيادة لمراجعة المشرف", "Submit overtime for supervisor review", "اضافی وقت سپروائزر کے جائزے کے لیے بھیجیں")
                           : canReview
-                            ? "مراجعة المشرف"
+                            ? text("مراجعة المشرف", "Supervisor review", "سپروائزر کا جائزہ")
                             : row.reopened
-                              ? "إعادة قرار الشؤون الإدارية"
-                              : "قرار الشؤون الإدارية"}
+                              ? text("إعادة قرار الشؤون الإدارية", "New administrative decision", "انتظامیہ کا نیا فیصلہ")
+                              : text("قرار الشؤون الإدارية", "Administrative decision", "انتظامیہ کا فیصلہ")}
                     </h3>
                     {!canReopen && !canSubmit && (
                       <div className="flex flex-wrap gap-2">
@@ -200,7 +203,7 @@ export function OvertimeDetails({
                           aria-pressed={approved === true}
                           onClick={() => setApproved(true)}
                         >
-                          {canReview ? "قبول مبدئي" : "اعتماد نهائي"}
+                          {canReview ? text("قبول مبدئي", "Initial acceptance", "ابتدائی منظوری") : text("اعتماد نهائي", "Final approval", "حتمی منظوری")}
                         </Button>
                         <Button
                           type="button"
@@ -212,14 +215,14 @@ export function OvertimeDetails({
                           aria-pressed={approved === false}
                           onClick={() => setApproved(false)}
                         >
-                          {canReview ? "رفض الزيادة" : "رفض نهائي"}
+                          {canReview ? text("رفض الزيادة", "Reject overtime", "اضافی وقت مسترد کریں") : text("رفض نهائي", "Final rejection", "حتمی انکار")}
                         </Button>
                       </div>
                     )}
                     {chosen && needsNote && (
                       <div className="space-y-2">
                         <Label htmlFor="overtime-decision-note">
-                          {label} (إلزامي)
+                          {label} {text("(إلزامي)", "(required)", "(لازمی)")}
                         </Label>
                         <Textarea
                           id="overtime-decision-note"
@@ -229,25 +232,23 @@ export function OvertimeDetails({
                           maxLength={2000}
                           value={note}
                           onChange={(event) => setNote(event.target.value)}
-                          placeholder="اكتب سببًا واضحًا من 3 أحرف على الأقل"
+                          placeholder={text("اكتب سببًا واضحًا من 3 أحرف على الأقل", "Enter a clear reason of at least 3 characters", "کم از کم 3 حروف کی واضح وجہ درج کریں")}
                         />
                       </div>
                     )}
                     {chosen && !needsNote && (
                       <p className="text-xs text-muted-foreground">
-                        هذا اعتماد أول للشؤون الإدارية؛ لا يلزم كتابة سبب.
+                        {text("هذا اعتماد أول للشؤون الإدارية؛ لا يلزم كتابة سبب.", "This is the first administrative approval; no reason is required.", "یہ انتظامیہ کی پہلی منظوری ہے؛ وجہ درکار نہیں۔")}
                       </p>
                     )}
                     {canReopen && (
                       <p className="text-xs text-muted-foreground">
-                        يعود الطلب إلى الشؤون الإدارية، وتبقى أسباب الرفض
-                        والقرارات السابقة محفوظة.
+                        {text("يعود الطلب إلى الشؤون الإدارية، وتبقى أسباب الرفض والقرارات السابقة محفوظة.", "The request returns to administration; previous rejection reasons and decisions remain saved.", "درخواست انتظامیہ کو واپس جائے گی؛ پچھلے فیصلے اور انکار کی وجوہات محفوظ رہیں گی۔")}
                       </p>
                     )}
                     {canDecide && row.requiresApprovalReason && (
                       <p className="text-xs text-muted-foreground">
-                        أعيد فتح رفض سابق؛ يلزم توضيح سبب القرار الجديد، سواء
-                        بالاعتماد أو الرفض.
+                        {text("أعيد فتح رفض سابق؛ يلزم توضيح سبب القرار الجديد، سواء بالاعتماد أو الرفض.", "A previous rejection was reopened; a reason is required for either approval or rejection.", "پچھلا انکار دوبارہ کھولا گیا؛ منظوری یا انکار دونوں کے لیے وجہ لازم ہے۔")}
                       </p>
                     )}
                     <Button
@@ -257,42 +258,42 @@ export function OvertimeDetails({
                       }
                     >
                       {busy
-                        ? "جارٍ الحفظ…"
+                        ? text("جارٍ الحفظ…", "Saving…", "محفوظ ہو رہا ہے…")
                         : !chosen
-                          ? "اختر القرار أولًا"
+                          ? text("اختر القرار أولًا", "Choose a decision first", "پہلے فیصلہ منتخب کریں")
                           : canReopen
-                            ? "إعادة الفتح وإرجاعه للشؤون الإدارية"
+                            ? text("إعادة الفتح وإرجاعه للشؤون الإدارية", "Reopen and return to administration", "دوبارہ کھول کر انتظامیہ کو واپس بھیجیں")
                             : canSubmit
-                              ? "إرسال لمراجعة المشرف"
+                              ? text("إرسال لمراجعة المشرف", "Submit for supervisor review", "سپروائزر کے جائزے کے لیے بھیجیں")
                               : canReview && approved
-                                ? "تأكيد القبول والإرسال للشؤون الإدارية"
+                                ? text("تأكيد القبول والإرسال للشؤون الإدارية", "Confirm acceptance and send to administration", "منظوری کی تصدیق کر کے انتظامیہ کو بھیجیں")
                                 : approved
-                                  ? "تأكيد الاعتماد النهائي"
-                                  : "تأكيد الرفض"}
+                                  ? text("تأكيد الاعتماد النهائي", "Confirm final approval", "حتمی منظوری کی تصدیق")
+                                  : text("تأكيد الرفض", "Confirm rejection", "انکار کی تصدیق")}
                     </Button>
                   </form>
                 ) : (
                   <p className="rounded-lg border bg-secondary/30 p-4 text-sm text-muted-foreground">
                     {row.status === "pending" && row.reviewStatus === "pending"
-                      ? "بانتظار مراجعة مشرف الفترة. لا يمكن الاعتماد النهائي قبل القبول المبدئي."
+                      ? text("بانتظار مراجعة مشرف الفترة. لا يمكن الاعتماد النهائي قبل القبول المبدئي.", "Awaiting supervisor review. Final approval requires initial acceptance.", "سپروائزر کے جائزے کا انتظار ہے۔ حتمی منظوری سے پہلے ابتدائی منظوری ضروری ہے۔")
                       : row.status === "pending"
-                        ? "الطلب لدى الشؤون الإدارية لاتخاذ القرار النهائي."
-                        : "يمكنك الاطلاع على القرار وأسبابه وسجل إجراءاته حسب صلاحيتك."}
+                        ? text("الطلب لدى الشؤون الإدارية لاتخاذ القرار النهائي.", "The request is with administration for a final decision.", "درخواست حتمی فیصلے کے لیے انتظامیہ کے پاس ہے۔")
+                        : text("يمكنك الاطلاع على القرار وأسبابه وسجل إجراءاته حسب صلاحيتك.", "You may view the decision, reasons and history according to your permissions.", "آپ اپنی اجازت کے مطابق فیصلہ، وجوہات اور سابقہ کارروائیاں دیکھ سکتے ہیں۔")}
                   </p>
                 )}
               </div>
-              <section aria-label="سجل القرارات والإجراءات">
-                <h3 className="mb-4 font-semibold">سجل القرارات والإجراءات</h3>
+              <section aria-label={text("سجل القرارات والإجراءات", "Decision and action history", "فیصلوں اور کارروائیوں کا ریکارڈ")}>
+                <h3 className="mb-4 font-semibold">{text("سجل القرارات والإجراءات", "Decision and action history", "فیصلوں اور کارروائیوں کا ریکارڈ")}</h3>
                 {!row.history.length ? (
                   <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    تجاوز مرصود من الحضور والانصراف؛ لم يسجل المشرف قراره بعد.
+                    {text("تجاوز مرصود من الحضور والانصراف؛ لم يسجل المشرف قراره بعد.", "An attendance overrun was detected; the supervisor has not recorded a decision yet.", "حاضری میں اضافی وقت پایا گیا؛ سپروائزر نے ابھی فیصلہ درج نہیں کیا۔")}
                   </p>
                 ) : (
                   <ol className="space-y-5 border-r pr-4">
                     {[...row.history].reverse().map((event) => (
                       <li key={event.id} className="relative text-sm">
                         <span className="absolute -right-[21px] top-2 h-2 w-2 rounded-full bg-primary" />
-                        <p className="font-medium">{historyTitle(event)}</p>
+                        <p className="font-medium">{historyTitle(event, language)}</p>
                         {event.reason && (
                           <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
                             {normalizeDigits(event.reason)}
@@ -300,7 +301,7 @@ export function OvertimeDetails({
                         )}
                         <p className="mt-2 text-xs text-muted-foreground">
                           {normalizeDigits(
-                            event.actorName ?? "مستخدم غير مسجل",
+                            event.actorName ?? text("مستخدم غير مسجل", "Unknown user", "نامعلوم صارف"),
                           )}{" "}
                           ·{" "}
                           <bdi>

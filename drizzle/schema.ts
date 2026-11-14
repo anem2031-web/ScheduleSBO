@@ -1165,6 +1165,38 @@ export const whatsappTrialScheduleState = mysqlTable("whatsapp_trial_schedule_st
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({ pk: primaryKey({ columns: [table.periodId, table.workerId] }) }));
 
+/** One row for every actual template request; status callbacks may arrive out of order. */
+export const whatsappDeliveryMessages = mysqlTable("whatsapp_delivery_messages", {
+  id: int("id").autoincrement().primaryKey(),
+  periodId: int("period_id").notNull(),
+  workerId: int("worker_id").notNull(),
+  kind: mysqlEnum("kind", ["weekly", "update"]).notNull(),
+  workDate: date("work_date"),
+  phoneEnding: varchar("phone_ending", { length: 4 }).notNull(),
+  messageId: varchar("message_id", { length: 255 }).unique(),
+  state: mysqlEnum("state", ["pending", "sent", "failed", "unknown"]).notNull().default("pending"),
+  errorCode: varchar("error_code", { length: 40 }),
+  errorSummary: varchar("error_summary", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  acceptedAt: timestamp("accepted_at"),
+}, (table) => ({ periodIdx: index("wa_delivery_period_idx").on(table.periodId), workerIdx: index("wa_delivery_worker_idx").on(table.workerId), createdIdx: index("wa_delivery_created_idx").on(table.createdAt) }));
+
+/** Events are retained independently so an early Meta callback is not lost. */
+export const whatsappDeliveryEvents = mysqlTable("whatsapp_delivery_events", {
+  eventKey: varchar("event_key", { length: 64 }).primaryKey(),
+  messageId: varchar("message_id", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["sent", "delivered", "read", "failed"]).notNull(),
+  occurredAt: timestamp("occurred_at").notNull(),
+  errorCode: varchar("error_code", { length: 40 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({ messageIdx: index("wa_event_message_idx").on(table.messageId) }));
+
+/** Destinations are snapshotted when the message is sent, including multi-site workers. */
+export const whatsappDeliveryDestinations = mysqlTable('whatsapp_delivery_destinations', {
+  id:int('id').autoincrement().primaryKey(), deliveryId:int('delivery_id').notNull(),
+  branchId:int('branch_id'), locationId:int('location_id'), departmentId:int('department_id'), supervisorId:int('supervisor_id'),
+}, t=>({deliveryIdx:index('wa_destination_delivery_idx').on(t.deliveryId)}));
+
 /**
  * تعريف الوردية (قالب قابل لإعادة الاستخدام) — منفصل عن التكليف.
  * الوردية العابرة لمنتصف الليل: crossesMidnight=true وتُنسب ليوم بدايتها.

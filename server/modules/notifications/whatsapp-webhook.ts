@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Express } from "express";
 import express from "express";
+import { parseDeliveryEvents, recordDeliveryEvents } from "../schedules/whatsapp-delivery-tracking";
 
 const path = "/api/webhooks/whatsapp";
 
@@ -23,7 +24,7 @@ export function registerWhatsAppWebhook(app: Express): void {
   });
 
   // Register before the global JSON parser so Meta's signature covers the exact payload bytes.
-  app.post(path, express.raw({ type: "application/json", limit: "1mb" }), (req, res) => {
+  app.post(path, express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
     const secret = process.env.WHATSAPP_META_APP_SECRET;
     const signature = req.header("x-hub-signature-256");
     if (!secret || !signature || !/^sha256=[a-f0-9]{64}$/i.test(signature) || !Buffer.isBuffer(req.body)) {
@@ -36,12 +37,14 @@ export function registerWhatsAppWebhook(app: Express): void {
       return;
     }
     try {
-      const payload = JSON.parse(req.body.toString("utf8")) as { entry?: Array<{ changes?: Array<{ value?: { statuses?: Array<{ status?: string }> } }> }> };
-      const statuses = payload.entry?.flatMap((entry) => entry.changes?.flatMap((change) => change.value?.statuses?.map((status) => status.status ?? "unknown") ?? []) ?? []) ?? [];
-      if (statuses.length) console.info("WhatsApp trial status events:", statuses.join(","));
+      const payload = JSON.parse(req.body.toString("utf8"));
+      const phoneId=process.env.WHATSAPP_TRIAL_PHONE_NUMBER_ID?.trim();
+      if (!phoneId) { res.sendStatus(503); return; }
+      await recordDeliveryEvents(parseDeliveryEvents(payload,phoneId));
       res.sendStatus(200);
-    } catch {
-      res.sendStatus(400);
+    } catch (error) {
+      if(error instanceof SyntaxError) res.sendStatus(400);
+      else { console.error('Unable to persist WhatsApp status events'); res.sendStatus(503); }
     }
   });
 }

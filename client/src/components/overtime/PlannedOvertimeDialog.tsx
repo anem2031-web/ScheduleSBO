@@ -15,6 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { normalizeDigits } from "@shared/display-format";
 import { riyadhDateKey } from "@/lib/operational-date";
 import { clockRange } from "./overtime-model";
+import { useLanguage } from "@/lib/i18n";
 
 const selectClass =
   "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
@@ -36,6 +37,8 @@ export function PlannedOvertimeDialog({
     reason: string;
   }) => void;
 }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const [workerId, setWorkerId] = useState(
     initialWorkerId ? String(initialWorkerId) : "",
   );
@@ -93,7 +96,7 @@ export function PlannedOvertimeDialog({
       }}
     >
       <DialogContent
-        dir="rtl"
+        dir={language === "en" ? "ltr" : "rtl"}
         className="max-h-[90vh] overflow-y-auto"
         onInteractOutside={(event) => {
           if (busy) event.preventDefault();
@@ -103,10 +106,9 @@ export function PlannedOvertimeDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle>طلب عمل إضافي مخطط</DialogTitle>
+          <DialogTitle>{text("طلب عمل إضافي مخطط", "Request planned overtime", "منصوبہ بند اضافی کام کی درخواست")}</DialogTitle>
           <DialogDescription>
-            حدد العامل والفترة ونهاية الدوام المطلوبة، واكتب مبررًا واحدًا
-            للزيادة. لا تتمدد الفترة قبل الاعتماد النهائي للشؤون الإدارية.
+            {text("حدد العامل والفترة ونهاية الدوام المطلوبة، واكتب مبررًا واحدًا للزيادة. لا تتمدد الفترة قبل الاعتماد النهائي للشؤون الإدارية.", "Select the worker, shift and requested end time, and provide one reason. The shift is not extended until final administrative approval.", "کارکن، شفٹ اور مطلوبہ اختتامی وقت منتخب کریں، اور وجہ درج کریں۔ انتظامیہ کی حتمی منظوری سے پہلے شفٹ نہیں بڑھائی جاتی۔")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -122,7 +124,7 @@ export function PlannedOvertimeDialog({
           }}
         >
           <div className="space-y-2">
-            <Label htmlFor="overtime-create-day">يوم العمل</Label>
+            <Label htmlFor="overtime-create-day">{text("يوم العمل", "Work day", "کام کا دن")}</Label>
             <Input
               id="overtime-create-day"
               type="date"
@@ -138,16 +140,16 @@ export function PlannedOvertimeDialog({
           </div>
           {initialWorkerId ? (
             <div className="rounded-md border p-3 text-sm">
-              العامل:{" "}
+              {text("العامل", "Worker", "کارکن")}:{" "}
               {normalizeDigits(eligible[0]?.name ?? `#${initialWorkerId}`)}
             </div>
           ) : (
             <div className="space-y-2">
-              <Label htmlFor="overtime-worker-search">العامل</Label>
+              <Label htmlFor="overtime-worker-search">{text("العامل", "Worker", "کارکن")}</Label>
               <Input
                 id="overtime-worker-search"
                 type="search"
-                placeholder="ابحث بالاسم أو الرقم الوظيفي"
+                placeholder={text("ابحث بالاسم أو الرقم الوظيفي", "Search by name or employee ID", "نام یا ملازم نمبر سے تلاش کریں")}
                 value={search}
                 disabled={busy}
                 onChange={(event) => {
@@ -158,7 +160,7 @@ export function PlannedOvertimeDialog({
               />
               <select
                 id="overtime-create-worker"
-                aria-label="اختر العامل"
+                aria-label={text("اختر العامل", "Select worker", "کارکن منتخب کریں")}
                 required
                 className={selectClass}
                 value={workerId}
@@ -169,7 +171,7 @@ export function PlannedOvertimeDialog({
                 }}
               >
                 <option value="">
-                  {options.isLoading ? "جارٍ تحميل الفترات…" : "اختر العامل"}
+                  {options.isLoading ? text("جارٍ تحميل الفترات…", "Loading shifts…", "شفٹیں لوڈ ہو رہی ہیں…") : text("اختر العامل", "Select worker", "کارکن منتخب کریں")}
                 </option>
                 {workers.map((worker) => (
                   <option key={worker.id} value={worker.id}>
@@ -179,14 +181,13 @@ export function PlannedOvertimeDialog({
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                تظهر العمال الذين لديهم فترات يمكنك طلب تمديدها في اليوم
-                المختار.
+                {text("تظهر العمال الذين لديهم فترات يمكنك طلب تمديدها في اليوم المختار.", "Shows workers whose shifts you can request to extend on the selected day.", "منتخب دن میں توسیع کے قابل شفٹوں والے کارکن دکھائے جاتے ہیں۔")}
               </p>
             </div>
           )}
           <div className="space-y-2">
             <Label htmlFor="overtime-create-assignment">
-              الفترة المطلوب تمديدها
+              {text("الفترة المطلوب تمديدها", "Shift to extend", "توسیع کی مطلوبہ شفٹ")}
             </Label>
             <select
               id="overtime-create-assignment"
@@ -197,13 +198,13 @@ export function PlannedOvertimeDialog({
               onChange={(event) => setAssignmentId(event.target.value)}
             >
               <option value="">
-                {options.isLoading ? "جارٍ تحميل الفترات…" : "اختر الفترة"}
+                {options.isLoading ? text("جارٍ تحميل الفترات…", "Loading shifts…", "شفٹیں لوڈ ہو رہی ہیں…") : text("اختر الفترة", "Select shift", "شفٹ منتخب کریں")}
               </option>
               {eligible.map((assignment) => (
                 <option key={assignment.id} value={assignment.id}>
                   {clockRange(assignment.startTime, assignment.endTime)} ·{" "}
                   {normalizeDigits(
-                    assignment.costCenterName ?? "مركز غير محدد",
+                    assignment.costCenterName ?? text("مركز غير محدد", "Cost center not set", "لاگت مرکز مقرر نہیں"),
                   )}
                 </option>
               ))}
@@ -213,7 +214,7 @@ export function PlannedOvertimeDialog({
               !eligible.length &&
               !options.isError && (
                 <p className="text-xs text-muted-foreground">
-                  لا توجد فترة متاحة لك لتمديدها في هذا اليوم.
+                  {text("لا توجد فترة متاحة لك لتمديدها في هذا اليوم.", "No shift is available for you to extend on this day.", "اس دن آپ کے لیے توسیع کی کوئی شفٹ دستیاب نہیں۔")}
                 </p>
               )}
             {options.isError && (
@@ -224,7 +225,7 @@ export function PlannedOvertimeDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="overtime-create-end">
-              نهاية الدوام بعد الزيادة
+              {text("نهاية الدوام بعد الزيادة", "End time after extension", "توسیع کے بعد اختتامی وقت")}
             </Label>
             <Input
               id="overtime-create-end"
@@ -237,7 +238,7 @@ export function PlannedOvertimeDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="overtime-create-reason">
-              مبرر الزيادة (إلزامي)
+              {text("مبرر الزيادة (إلزامي)", "Reason for overtime (required)", "اضافی وقت کی وجہ (لازمی)")}
             </Label>
             <Textarea
               id="overtime-create-reason"
@@ -247,7 +248,7 @@ export function PlannedOvertimeDialog({
               disabled={busy}
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="مثال: استكمال إغلاق المطعم وتسليم العهدة"
+              placeholder={text("مثال: استكمال إغلاق المطعم وتسليم العهدة", "Example: finish closing the restaurant and hand over custody", "مثال: ریستوران بند کرنا اور سامان حوالے کرنا")}
             />
           </div>
           <DialogFooter>
@@ -257,7 +258,7 @@ export function PlannedOvertimeDialog({
               disabled={busy}
               onClick={onClose}
             >
-              رجوع
+              {text("رجوع", "Back", "واپس")}
             </Button>
             <Button
               disabled={
@@ -267,7 +268,7 @@ export function PlannedOvertimeDialog({
                 reason.trim().length < 3
               }
             >
-              {busy ? "جارٍ الحفظ…" : "حفظ الطلب وإرساله للاعتماد"}
+              {busy ? text("جارٍ الحفظ…", "Saving…", "محفوظ ہو رہا ہے…") : text("حفظ الطلب وإرساله للاعتماد", "Save and submit for approval", "درخواست محفوظ کر کے منظوری کے لیے بھیجیں")}
             </Button>
           </DialogFooter>
         </form>

@@ -24,6 +24,7 @@ const Overtime = lazy(() => import("./pages/Overtime"));
 const Settings = lazy(() => import("./pages/Settings"));
 const WorkerHub = lazy(() => import("./pages/WorkerHub"));
 const Workers = lazy(() => import("./pages/Workers"));
+const WhatsAppDelivery = lazy(() => import("./pages/WhatsAppDelivery"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function PageLoading() {
@@ -55,6 +56,8 @@ function Router() {
       <Route path="/attendance" component={Attendance} />
 
       <Route path="/schedules" component={Schedules} />
+
+      <Route path="/whatsapp-delivery" component={WhatsAppDelivery} />
 
       <Route path="/evaluations" component={Evaluations} />
 

@@ -11,9 +11,10 @@ import type {
   RosterWorkerModel,
 } from "./weekly-board-model";
 import { chronologicalPeriodOrder, periodClockRange, periodDestinationText, periodTimeLabel, type DestinationCatalog } from "./period-destination";
+import { useLanguage, type Language } from "@/lib/i18n";
 
-const hours = (minutes: number) =>
-  `${formatNumber(minutes / 60, { maximumFractionDigits: 2 })} س`;
+const hours = (minutes: number, language: Language) =>
+  `${formatNumber(minutes / 60, { maximumFractionDigits: 2 })} ${{ ar: "س", en: "h", ur: "گھنٹے" }[language]}`;
 
 type EditCell = (
   workerId: number,
@@ -41,6 +42,8 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
   destinations: DestinationCatalog;
   ownerId?: number;
 }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const { mine, others, rest, total, changed, permissions } = cell;
   return (
     <td
@@ -49,7 +52,7 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
       <div className="space-y-1">
         {rest && (
           <div className={`rounded px-2 py-1 text-xs ${/سنوية|V\d+/.test(rest) ? "bg-emerald-100 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-100" : "bg-muted"}`}>
-            {normalizeDigits(rest)}
+            {rest === "راحة أسبوعية" ? text("راحة أسبوعية", "Weekly day off", "ہفتہ وار چھٹی") : normalizeDigits(rest)}
           </div>
         )}
         {permissions.map((permission) => (
@@ -57,12 +60,12 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
             key={permission.id}
             className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900"
           >
-            استئذان{" "}
+            {text("استئذان", "Time off", "عارضی چھٹی")}{" "}
             <span dir="ltr">
               {normalizeDigits(permission.startTime.slice(0, 5))}–
               {normalizeDigits(permission.endTime.slice(0, 5))}
             </span>{" "}
-            · {permission.mode === "excused" ? "معفى" : "يتطلب تعويضًا"}
+            · {permission.mode === "excused" ? text("معفى", "Excused", "معاف") : text("يتطلب تعويضًا", "Make-up required", "وقت پورا کرنا ہوگا")}
           </div>
         ))}
         {chronologicalPeriodOrder(mine, others).map(({ kind, index }) => {
@@ -73,9 +76,9 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
             (!isMine ? others[index].supervisorName : "");
           return <div key={`${kind}-${isMine ? index : others[index].id}`}
             className={`rounded px-2 py-1 text-center text-xs ${isMine ? "bg-blue-50 text-blue-800" : "bg-violet-50 text-violet-800"}`}>
-            <div className="mb-1">{periodTimeLabel(period.startTime)}</div>
+            <div className="mb-1">{(() => { const label = periodTimeLabel(period.startTime); return label === "صباحًا" ? text(label, "Morning", "صبح") : label === "مساءً" ? text(label, "Evening", "شام") : label === "بعد الظهر" ? text(label, "Afternoon", "دوپہر") : text(label, "Night", "رات"); })()}</div>
             <div dir="ltr">{normalizeDigits(periodClockRange(period.startTime, period.endTime))}</div>
-            {!!period.breakMinutes && <div>راحة {period.breakMinutes} دقيقة</div>}
+            {!!period.breakMinutes && <div>{text("راحة", "Break", "وقفہ")} {period.breakMinutes} {text("دقيقة", "min", "منٹ")}</div>}
             <div className="mt-1 break-words leading-5">{normalizeDigits(periodDestinationText(period, worker, destinations))}</div>
             {ownerName && <div className="mt-1 break-words">{normalizeDigits(ownerName)}</div>}
           </div>;
@@ -84,9 +87,9 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
           <p
             className={`py-1 text-center text-xs ${cell.required !== null && total > cell.required ? "font-semibold text-amber-800 dark:text-amber-300" : "text-muted-foreground"}`}
           >
-            {hours(total)}
+            {hours(total, language)}
             {cell.required !== null && !rest
-              ? ` · ${total <= cell.required ? `متبقي ${hours(cell.required - total)}` : `زيادة مخططة ${hours(total - cell.required)}`}`
+              ? ` · ${total <= cell.required ? `${text("متبقي", "Remaining", "باقی")} ${hours(cell.required - total, language)}` : `${text("زيادة مخططة", "Planned overtime", "منصوبہ بند اضافی وقت")} ${hours(total - cell.required, language)}`}`
               : ""}
           </p>
         )}
@@ -98,7 +101,7 @@ const WeeklyRosterCell = memo(function WeeklyRosterCell({
             disabled={savePending}
             onClick={() => onEdit(worker.id, date, mine)}
           >
-            {mine.length ? "تعديل فتراتي" : "+ إضافة فترة"}
+            {mine.length ? text("تعديل فتراتي", "Edit my shifts", "میری شفٹوں میں ترمیم") : text("+ إضافة فترة", "+ Add shift", "+ شفٹ شامل کریں")}
           </Button>
         )}
       </div>
@@ -138,6 +141,8 @@ export const WeeklyRosterRow = memo(function WeeklyRosterRow({
   measureRow: (workerId: number, node: HTMLTableRowElement | null) => void;
   destinations: DestinationCatalog;
 }) {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const rowRef = useCallback(
     (node: HTMLTableRowElement | null) => measureRow(worker.id, node),
     [worker.id, measureRow],
@@ -145,7 +150,7 @@ export const WeeklyRosterRow = memo(function WeeklyRosterRow({
   const { planned, required, cells } = model;
   return (
     <tr ref={rowRef} aria-rowindex={rowIndex} className="border-t align-top">
-      <td className="sticky right-0 z-10 bg-background p-3">
+      <td className={`sticky ${language === "en" ? "left-0" : "right-0"} z-10 bg-background p-3`}>
         <div className="flex items-start gap-2">
           {canSelect && (
             <input
@@ -173,7 +178,7 @@ export const WeeklyRosterRow = memo(function WeeklyRosterRow({
             </p>
             {worker.requiredDailyMinutes === null && (
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                أكمل بطاقة الدوام أولًا
+                {text("أكمل بطاقة الدوام أولًا", "Complete the work profile first", "پہلے اوقات کا پروفائل مکمل کریں")}
               </p>
             )}
           </div>
@@ -203,19 +208,19 @@ export const WeeklyRosterRow = memo(function WeeklyRosterRow({
       ))}
       <td className="border-r p-3 text-xs">
         <p>
-          مخطط: <b>{hours(planned)}</b>
+          {text("مخطط", "Planned", "منصوبہ بند")}: <b>{hours(planned, language)}</b>
         </p>
         <p className="mt-2">
-          مطلوب: <b>{required === null ? "غير محدد" : hours(required)}</b>
+          {text("مطلوب", "Required", "مطلوب")}: <b>{required === null ? text("غير محدد", "Not set", "مقرر نہیں") : hours(required, language)}</b>
         </p>
         <p
           className={`mt-2 ${required !== null && planned > required ? "text-amber-800 dark:text-amber-300" : "text-emerald-800 dark:text-emerald-300"}`}
         >
           {required === null
-            ? "أكمل ساعات البطاقة"
+            ? text("أكمل ساعات البطاقة", "Complete profile hours", "پروفائل کے اوقات مکمل کریں")
             : planned > required
-              ? `زيادة مخططة ${hours(planned - required)}`
-              : `متبقي ${hours(required - planned)}`}
+              ? `${text("زيادة مخططة", "Planned overtime", "منصوبہ بند اضافی وقت")} ${hours(planned - required, language)}`
+              : `${text("متبقي", "Remaining", "باقی")} ${hours(required - planned, language)}`}
         </p>
       </td>
     </tr>

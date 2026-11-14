@@ -34,6 +34,13 @@ beforeEach(() => {
   repository.getAllLocations.mockResolvedValue([]);
 });
 describe("supervisor worker access", () => {
+  it("checks worker scope before returning a translation attempt and never returns credentials", async () => {
+    const result = await caller("supervisor").nameTranslationStatus({ workerId: 11 });
+    expect(scope.assertWorkerInScope).toHaveBeenCalledWith(expect.anything(), 11);
+    expect(Object.keys(result).sort()).toEqual(["attempt", "configuration"]);
+    scope.assertWorkerInScope.mockRejectedValueOnce(new Error("out of scope"));
+    await expect(caller("supervisor").nameTranslationStatus({ workerId: 99 })).rejects.toThrow("out of scope");
+  });
   it("scopes paginated results, totals, the full list and worker reference rows to the current supervisor account", async () => {
     const api = caller("supervisor");
     await api.list({ page: 1, pageSize: 50 });

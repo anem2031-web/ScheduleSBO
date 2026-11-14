@@ -6,6 +6,7 @@ import {
   Clock3,
   Timer,
   LogOut,
+  MessageCircle,
   Settings,
   Users,
   X,
@@ -31,40 +32,55 @@ import { PERMISSION_CATALOG } from "@shared/access-control";
 import { normalizeDigits } from "@shared/display-format";
 import { ProductBrand } from "./ProductBrand";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useLanguage, type Language } from "@/lib/i18n";
+import { permissionLabel } from "@/lib/permission-labels";
 
 const icons = {
   today: Clock3,
   workers: Users,
   schedule: CalendarDays,
+  whatsappDelivery: MessageCircle,
   overtime: Timer,
   reviews: CheckSquare,
   setup: Settings,
 };
-const roleLabels: Record<string, string> = {
-  admin: "مدير النظام",
-  hr_admin: "الشؤون الإدارية",
-  supervisor: "مشرف",
-  guard: "الحضور",
-  worker: "عامل",
-  financial_reviewer: "المراجع المالي",
-  finance: "المالية",
-  accounting_head: "رئيس الحسابات",
-  modifier: "مسؤول التعديلات",
+const roleLabels: Record<string, Record<Language, string>> = {
+  admin: { ar: "مدير النظام", en: "Administrator", ur: "سسٹم ایڈمنسٹریٹر" },
+  hr_admin: { ar: "الشؤون الإدارية", en: "Administration", ur: "انتظامیہ" },
+  supervisor: { ar: "مشرف", en: "Supervisor", ur: "سپروائزر" },
+  guard: { ar: "الحضور", en: "Attendance", ur: "حاضری" },
+  worker: { ar: "عامل", en: "Worker", ur: "کارکن" },
+  financial_reviewer: { ar: "المراجع المالي", en: "Financial reviewer", ur: "مالیاتی جائزہ کار" },
+  finance: { ar: "المالية", en: "Finance", ur: "مالیات" },
+  accounting_head: { ar: "رئيس الحسابات", en: "Head of accounts", ur: "سربراہ حسابات" },
+  modifier: { ar: "مسؤول التعديلات", en: "Schedule editor", ur: "شیڈول ایڈیٹر" },
+};
+
+const navigationLabels: Record<string, Record<Language, string>> = {
+  today: { ar: "اليوم", en: "Today", ur: "آج" },
+  workers: { ar: "العمال", en: "Workers", ur: "کارکنان" },
+  schedule: { ar: "الجدول الأسبوعي", en: "Weekly schedule", ur: "ہفتہ وار شیڈول" },
+  whatsappDelivery: { ar: "متابعة رسائل واتساب", en: "WhatsApp delivery", ur: "واٹس ایپ پیغامات" },
+  overtime: { ar: "العمل الإضافي", en: "Overtime", ur: "اضافی کام" },
+  reviews: { ar: "المراجعات والاعتمادات", en: "Reviews and approvals", ur: "جائزے اور منظوری" },
+  setup: { ar: "التهيئة", en: "Setup", ur: "ترتیبات" },
 };
 
 export function DashboardLayout({ children }: { children: ReactNode }) {
   const { loading, user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   if (loading) return <DashboardLayoutSkeleton />;
   if (!user)
     return (
       <div
-        dir="rtl"
+        dir={language === "en" ? "ltr" : "rtl"}
         className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground"
       >
         <div className="space-y-4 text-center">
-          <h1 className="text-xl font-bold">سجّل الدخول للمتابعة</h1>
+          <h1 className="text-xl font-bold">{text("سجّل الدخول للمتابعة", "Sign in to continue", "جاری رکھنے کے لیے سائن ان کریں")}</h1>
           <Button onClick={() => window.location.assign("/login")}>
-            تسجيل الدخول
+            {text("تسجيل الدخول", "Sign in", "سائن ان")}
           </Button>
         </div>
       </div>
@@ -93,6 +109,12 @@ function WorkspaceLayout({
   const [location, navigate] = useLocation();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { logout } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
+  const roleLabel = roleLabels[user.role]?.[language] ?? user.role;
+  const navLabel = (key: string, fallback: string) => key === "workers" && user.role === "supervisor"
+    ? text("عمالي", "My workers", "میرے کارکنان")
+    : navigationLabels[key]?.[language] ?? fallback;
   const expanded = state !== "collapsed" || isMobile;
   const items = navigationForUser(user);
   const active = items.find((item) => isNavigationActive(location, item.path));
@@ -103,11 +125,11 @@ function WorkspaceLayout({
 
   return (
     <div
-      dir="rtl"
+      dir={language === "en" ? "ltr" : "rtl"}
       className="executive-theme flex min-h-screen w-full bg-background text-foreground"
     >
       <Sidebar
-        side="right"
+        side={language === "en" ? "left" : "right"}
         collapsible="icon"
         className="border-l border-border"
       >
@@ -123,7 +145,7 @@ function WorkspaceLayout({
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="إغلاق القائمة"
+                aria-label={text("إغلاق القائمة", "Close menu", "مینو بند کریں")}
                 onClick={() => setOpenMobile(false)}
               >
                 <X className="h-4 w-4" />
@@ -140,16 +162,14 @@ function WorkspaceLayout({
                 <SidebarMenuItem key={item.key}>
                   <SidebarMenuButton
                     isActive={selected}
-                    tooltip={item.label}
+                    tooltip={navLabel(item.key, item.label)}
                     onClick={() => go(item.path)}
                     aria-current={selected ? "page" : undefined}
                     className="h-12 gap-3 rounded-xl px-3 text-sm"
                   >
                     <Icon className="h-5 w-5 shrink-0" />
                     <span>
-                      {item.key === "workers" && user.role === "supervisor"
-                        ? "عمالي"
-                        : item.label}
+                      {navLabel(item.key, item.label)}
                     </span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -161,17 +181,17 @@ function WorkspaceLayout({
           {expanded && (
             <div className="mb-3 px-2">
               <p className="truncate text-sm font-semibold">
-                {normalizeDigits(user.name || roleLabels[user.role] || "")}
+                {normalizeDigits(user.name || roleLabel)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {roleLabels[user.role]}
+                {roleLabel}
               </p>
-              {user.accessScope && <p className="mt-1 text-xs text-muted-foreground">نطاق العمل: {user.accessScope.costCenterIds.length} مركز تكلفة</p>}
-              <details className="mt-2 text-xs"><summary className="cursor-pointer text-muted-foreground">صلاحياتي</summary><div className="mt-2 max-h-44 overflow-y-auto space-y-1">{user.permissions?.includes("*") ? "جميع الصلاحيات" : PERMISSION_CATALOG.filter(([code]) => user.permissions?.includes(code)).map(([code, , label]) => <p key={code}>{label}</p>)}</div></details>
+              {user.accessScope && <p className="mt-1 text-xs text-muted-foreground">{text("نطاق العمل", "Work scope", "کام کا دائرہ")}: {user.accessScope.costCenterIds.length} {text("مركز تكلفة", "cost centers", "لاگت کے مراکز")}</p>}
+              <details className="mt-2 text-xs"><summary className="cursor-pointer text-muted-foreground">{text("صلاحياتي", "My permissions", "میری اجازتیں")}</summary><div className="mt-2 max-h-44 overflow-y-auto space-y-1">{user.permissions?.includes("*") ? text("جميع الصلاحيات", "All permissions", "تمام اجازتیں") : PERMISSION_CATALOG.filter(([code]) => user.permissions?.includes(code)).map(([code, , label]) => <p key={code}>{permissionLabel(code, label, language)}</p>)}</div></details>
             </div>
           )}
           <SidebarMenuButton
-            tooltip="تسجيل الخروج"
+            tooltip={text("تسجيل الخروج", "Sign out", "سائن آؤٹ")}
             onClick={async () => {
               await logout();
               window.location.assign("/login");
@@ -179,20 +199,20 @@ function WorkspaceLayout({
             className="h-10"
           >
             <LogOut className="h-4 w-4" />
-            <span>تسجيل الخروج</span>
+            <span>{text("تسجيل الخروج", "Sign out", "سائن آؤٹ")}</span>
           </SidebarMenuButton>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-w-0 bg-background">
         <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-3 border-b border-border bg-background/95 px-4 backdrop-blur lg:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <SidebarTrigger aria-label="فتح أو إغلاق القائمة" />
+            <SidebarTrigger aria-label={text("فتح أو إغلاق القائمة", "Toggle menu", "مینو کھولیں یا بند کریں")} />
             <p className="truncate text-sm font-semibold">
-              {active?.label || "إدارة الدوام"}
+              {active ? navLabel(active.key, active.label) : text("إدارة الدوام", "Schedule management", "شیڈول کا انتظام")}
             </p>
           </div>
           <span className="truncate text-xs text-muted-foreground">
-            {roleLabels[user.role]}
+            {roleLabel}
           </span>
           <LanguageSwitcher />
         </header>

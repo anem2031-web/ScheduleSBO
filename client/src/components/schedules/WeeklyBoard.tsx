@@ -44,6 +44,7 @@ import { useVirtualRoster } from "./useVirtualRoster";
 import { PeriodDestinationEditor } from "./PeriodDestinationEditor";
 import { useLanguage } from "@/lib/i18n";
 import { directPeriod, EMPTY_DESTINATIONS } from "./period-destination";
+import { invalidWhatsAppPreview } from "./whatsapp-preview-gating";
 export type { BoardWorker, BoardAssignment } from "./weekly-board-model";
 import type { BoardWorker, BoardAssignment } from "./weekly-board-model";
 
@@ -54,6 +55,10 @@ const EMPTY_ASSIGNMENTS: BoardAssignment[] = [];
 
 export function WeeklyBoard() {
   const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
+  const weekday = (index: number) => language === "ar" ? WEEK_DAY_NAMES[index] : language === "en"
+    ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][index]
+    : ["اتوار", "پیر", "منگل", "بدھ", "جمعرات", "جمعہ", "ہفتہ"][index];
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const [weekStart, setWeekStart] = useState(() => sundayOf(riyadhToday()));
@@ -93,6 +98,8 @@ export function WeeklyBoard() {
   const [printReady, setPrintReady] = useState(false);
   const [showWhatsAppPreview, setShowWhatsAppPreview] = useState(false);
   const [showWhatsAppReviews, setShowWhatsAppReviews] = useState(false);
+  const [whatsAppFormat, setWhatsAppFormat] = useState<"text" | "image" | "media">("media");
+  const [forceWeekly, setForceWeekly] = useState(false);
   const printFrame = useRef<HTMLIFrameElement>(null);
   const {
     data,
@@ -116,20 +123,22 @@ export function WeeklyBoard() {
   const sendPublishedWhatsAppTrial = trpc.schedules.sendPublishedWhatsAppTrial.useMutation({
     onSuccess: (result) => {
       setError("");
+      setForceWeekly(false);
       setMessage(result.mode === "test"
         ? `واتساب التجريبي: قبلت Meta ${result.sent} طلب إرسال، وفشل ${result.failed}. ${result.note}`
         : result.note);
     },
-    onError: (err) => setError(err.message),
+    onError: (err) => { setForceWeekly(false); setError(err.message); },
   });
   const canExport = permits(user?.permissions ?? [], "schedule:export");
   const period = data?.periods.find(
     (p) => p.startDate && p.status !== "cancelled",
   );
   const whatsAppPreview = trpc.schedules.getPublishedWhatsAppTrialPreview.useQuery(
-    { periodId: period?.id ?? 0 },
-    { enabled: showWhatsAppPreview && period?.status === "published" && canSendWholeWhatsAppTrial },
+    { periodId: period?.id ?? 0, format: whatsAppFormat },
+    { enabled: period?.status === "published" && canSendWholeWhatsAppTrial && !!whatsappTrial.data?.ready && !whatsappTrial.data.connectionTest },
   );
+  const previewInvalid = invalidWhatsAppPreview(whatsAppPreview);
   const whatsAppReviews = trpc.schedules.getWhatsAppTrialReviews.useQuery(
     { periodId: period?.id ?? 0 },
     { enabled: showWhatsAppReviews && !!period?.id && user?.role === "admin" },
@@ -146,6 +155,7 @@ export function WeeklyBoard() {
       utils.schedules.getWeeklyBoardPage.invalidate();
       utils.schedules.getWeeklyBoardExport.invalidate();
       utils.schedules.listPeriods.invalidate();
+      utils.schedules.getPublishedWhatsAppTrialPreview.invalidate();
     },
     onError: (err) => setError(err.message),
   });
@@ -177,6 +187,7 @@ export function WeeklyBoard() {
       utils.schedules.listPeriods.invalidate();
       utils.schedules.listAssignments.invalidate();
       utils.schedules.getWorkerTimeline.invalidate();
+      utils.schedules.getPublishedWhatsAppTrialPreview.invalidate();
       try {
         await refreshBoard({ throwOnError: true });
         setDrafts({});
@@ -202,6 +213,7 @@ export function WeeklyBoard() {
     setMessage("");
     setError("");
     setShowWhatsAppPreview(false);
+    setForceWeekly(false);
   };
   const changeOwner = (value: string) => {
     if (
@@ -350,13 +362,12 @@ export function WeeklyBoard() {
   };
 
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="space-y-5" dir={language === "en" ? "ltr" : "rtl"}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">الجدول الأسبوعي</h1>
+          <h1 className="text-2xl font-bold">{text("الجدول الأسبوعي", "Weekly schedule", "ہفتہ وار شیڈول")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            رتّب فترات العمل من الأحد إلى السبت، وراجع رصيد العامل بين جميع
-            مشرفيه.
+            {text("رتّب فترات العمل من الأحد إلى السبت، وراجع رصيد العامل بين جميع مشرفيه.", "Arrange shifts from Sunday to Saturday and review each worker’s hours across supervisors.", "اتوار سے ہفتہ تک شفٹیں ترتیب دیں اور تمام سپروائزرز میں کارکن کے اوقات دیکھیں۔")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -365,27 +376,27 @@ export function WeeklyBoard() {
             onClick={() => exportRoster(false)}
             disabled={!data || !canExport || exporting}
           >
-            <Printer className="h-4 w-4" /> طباعة / PDF
+            <Printer className="h-4 w-4" /> {text("طباعة / PDF", "Print / PDF", "پرنٹ / PDF")}
           </Button>
           <Button
             variant="outline"
             onClick={() => exportRoster(true)}
             disabled={!data || !canExport || exporting}
           >
-            <Download className="h-4 w-4" /> صورة
+            <Download className="h-4 w-4" /> {text("صورة", "Image", "تصویر")}
           </Button>
-          {exporting && <span role="status" className="self-center text-sm">جارٍ تجهيز جدول المركز كاملًا…</span>}
+          {exporting && <span role="status" className="self-center text-sm">{text("جارٍ تجهيز جدول المركز كاملًا…", "Preparing the full cost center schedule…", "مکمل لاگت مرکز کا شیڈول تیار کیا جا رہا ہے…")}</span>}
         </div>
       </div>
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 pt-5">
           <div className="space-y-2">
-            <Label htmlFor="roster-week">أي يوم من الأسبوع المطلوب</Label>
+            <Label htmlFor="roster-week">{text("أي يوم من الأسبوع المطلوب", "Any day in the required week", "مطلوبہ ہفتے کا کوئی بھی دن")}</Label>
             <div className="flex gap-1">
               <Button
                 size="icon"
                 variant="outline"
-                aria-label="الأسبوع السابق"
+                aria-label={text("الأسبوع السابق", "Previous week", "پچھلا ہفتہ")}
                 disabled={save.isPending || copying}
                 onClick={() => changeWeek(addCalendarDays(weekStart, -7))}
               >
@@ -401,7 +412,7 @@ export function WeeklyBoard() {
               <Button
                 size="icon"
                 variant="outline"
-                aria-label="الأسبوع التالي"
+                aria-label={text("الأسبوع التالي", "Next week", "اگلا ہفتہ")}
                 disabled={save.isPending || copying}
                 onClick={() => changeWeek(addCalendarDays(weekStart, 7))}
               >
@@ -410,7 +421,7 @@ export function WeeklyBoard() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="roster-center">مركز التكلفة</Label>
+            <Label htmlFor="roster-center">{text("مركز التكلفة", "Cost center", "لاگت مرکز")}</Label>
             <select
               id="roster-center"
               className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -423,7 +434,7 @@ export function WeeklyBoard() {
                 setSelectedDates([]);
               }}
             >
-              <option value="">جميع المراكز</option>
+              <option value="">{text("جميع المراكز", "All cost centers", "تمام لاگت مراکز")}</option>
               {centers.map((name) => (
                 <option key={name} value={name}>
                   {normalizeDigits(name)}
@@ -432,19 +443,19 @@ export function WeeklyBoard() {
             </select>
           </div>
           <div className="min-w-48 space-y-2">
-            <Label htmlFor="roster-search">البحث عن عامل</Label>
+            <Label htmlFor="roster-search">{text("البحث عن عامل", "Search for a worker", "کارکن تلاش کریں")}</Label>
             <Input
               id="roster-search"
               value={search}
               disabled={Object.keys(drafts).length > 0 || save.isPending || copying}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="الاسم أو الرقم أو القسم"
+              placeholder={text("الاسم أو الرقم أو القسم", "Name, number or department", "نام، نمبر یا شعبہ")}
             />
           </div>
           {canEdit && user?.role !== "supervisor" && (
             <div className="space-y-2">
               <Label htmlFor="roster-supervisor">
-                المشرف المسؤول عن الفترات
+                {text("المشرف المسؤول عن الفترات", "Supervisor responsible for shifts", "شفٹوں کا ذمہ دار سپروائزر")}
               </Label>
               <select
                 id="roster-supervisor"
@@ -453,7 +464,7 @@ export function WeeklyBoard() {
                 onChange={(e) => changeOwner(e.target.value)}
                 disabled={save.isPending || copying}
               >
-                <option value="">اختر المشرف للتعديل</option>
+                <option value="">{text("اختر المشرف للتعديل", "Select a supervisor to edit", "ترمیم کے لیے سپروائزر منتخب کریں")}</option>
                 {supervisors.map((s) => (
                   <option key={s.id} value={s.id}>
                     {normalizeDigits(s.name ?? `مشرف ${s.id}`)}
@@ -482,18 +493,33 @@ export function WeeklyBoard() {
       )}
       {weekLocked && (
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
-          هذا الأسبوع مقفل أو مؤرشف. يمكنك مراجعته وتصديره؛ إعادة فتحه من صلاحية
-          الإدارة.
+          {text("هذا الأسبوع مقفل أو مؤرشف. يمكنك مراجعته وتصديره؛ إعادة فتحه من صلاحية الإدارة.", "This week is locked or archived. You can review and export it; only administration may reopen it.", "یہ ہفتہ مقفل یا محفوظ ہے۔ آپ اسے دیکھ اور برآمد کر سکتے ہیں؛ دوبارہ کھولنا انتظامیہ کا اختیار ہے۔")}
         </div>
       )}
       {canApprove && whatsappTrial.data && (
         <div role="status" className="rounded-lg border bg-muted p-3 text-sm">
           واتساب التجريبي: {whatsappTrial.data.ready ? `الربط جاهز حتى ${whatsappTrial.data.recipients} مستلمين محددين` : "غير مفعّل على الخادم"}.
           {whatsappTrial.data.ready && !whatsappTrial.data.autoSend && " الإرسال عند اعتماد الأسبوع متوقف؛ يمكن الإرسال يدويًا بعد المراجعة."}
-          {whatsappTrial.data.ready && !whatsappTrial.data.connectionTest && !whatsappTrial.data.updateTemplateApproved && " إرسال التعديلات ينتظر اعتماد قالب التعديل وضبطه."}
+          {whatsappTrial.data.ready && !whatsappTrial.data.connectionTest && !whatsappTrial.data.updateTemplateApproved && !whatsappTrial.data.enTemplatesApproved && " إرسال التعديلات ينتظر اعتماد قالب التعديل وضبطه."}
           {whatsappTrial.data.ready && (whatsappTrial.data.connectionTest
             ? " وضع اختبار الاتصال مفعّل، وتحتوي رسالة الاختبار على نص Meta التجريبي دون تفاصيل الجداول."
-            : !whatsappTrial.data.scheduleTemplateApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن.")}
+            : !whatsappTrial.data.scheduleTemplateApproved && !whatsappTrial.data.enTemplatesApproved && " إرسال الجدول ينتظر اعتماد قالب Meta. يمكنك إعداد الأسبوع واعتماده الآن.")}
+          {!whatsappTrial.data.connectionTest && canSendWholeWhatsAppTrial && <div className="mt-3 max-w-sm space-y-1">
+            <Label htmlFor="whatsapp-pilot-format">شكل رسالة التجربة اليدوية بالإنجليزية</Label>
+            <select id="whatsapp-pilot-format" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={whatsAppFormat} onChange={(event) => setWhatsAppFormat(event.target.value as typeof whatsAppFormat)}>
+              <option value="media">صورة مع تفاصيل الجدول نصيًا</option>
+              <option value="image">صورة مع رسالة قصيرة</option>
+              <option value="text">تفاصيل الجدول نصيًا</option>
+            </select>
+            <p className="text-xs text-muted-foreground">يُطبق الاختيار على المعاينة والإرسال اليدوي للعمال ذوي لغة التواصل الإنجليزية؛ العربية تُرسل نصيًا. الإرسال التلقائي عند الاعتماد يستخدم التنسيق الافتراضي للخادم.</p>
+            {period?.status === "published" && <label className="flex items-start gap-2 pt-2 text-sm">
+              <input type="checkbox" checked={forceWeekly} onChange={(event) => setForceWeekly(event.target.checked)} className="mt-1" />
+              <span>إعادة إرسال الجدول الأسبوعي للعمال المحددين حتى لو أُرسل سابقًا <span className="text-muted-foreground">(قد تصلهم نسخة مكررة)</span></span>
+            </label>}
+          </div>}
+          {period?.status === "published" && canSendWholeWhatsAppTrial && whatsappTrial.data.ready && !whatsappTrial.data.connectionTest && previewInvalid && <p className="mt-2 text-xs text-muted-foreground" role="status">
+            {whatsAppPreview.isLoading || whatsAppPreview.isFetching ? "جارٍ التحقق من رسائل التجربة…" : "لا يمكن الإرسال حتى تكون معاينة جميع رسائل التجربة جاهزة وخالية من الأخطاء."}
+          </p>}
           <div className="mt-2 flex flex-wrap gap-2">
             {whatsappTrial.data.ready && whatsappTrial.data.targets.map((target) => <Button key={target.index} size="sm" variant="outline" disabled={sendWhatsAppProbe.isPending} onClick={() => sendWhatsAppProbe.mutate({ recipientIndex: target.index })}>
               إرسال تجربة إلى الرقم المنتهي بـ{target.ending}
@@ -503,12 +529,14 @@ export function WeeklyBoard() {
             </Button>}
             {period && user?.role === "admin" && <Button size="sm" variant="outline" onClick={() => setShowWhatsAppReviews(true)}>مراجعة إرسال واتساب</Button>}
             {period?.status === "published" && canSendWholeWhatsAppTrial && <Button size="sm"
-              disabled={!whatsappTrial.data.ready || (!whatsappTrial.data.scheduleTemplateApproved && !whatsappTrial.data.connectionTest) || sendPublishedWhatsAppTrial.isPending}
+              disabled={!whatsappTrial.data.ready || (!whatsappTrial.data.connectionTest && previewInvalid) || sendPublishedWhatsAppTrial.isPending}
               onClick={() => {
                 if (window.confirm(whatsappTrial.data.connectionTest
                   ? "إرسال رسالة Meta التجريبية لاختبار الاتصال إلى عمال التجربة المسموح بهم؟ الرسالة لا تحتوي على تفاصيل جدولهم. إذا أرسلتها سابقًا فقد تصلهم نسخة أخرى."
-                  : "إرسال الجدول أو التغييرات المعتمدة إلى عمال التجربة؟ لن تُعاد الرسائل المسجلة سابقًا دون تغيير."))
-                  sendPublishedWhatsAppTrial.mutate({ periodId: period.id });
+                  : forceWeekly
+                    ? "ستُرسل نسخة كاملة من الجدول المعتمد إلى عمال التجربة المحددين حتى لو وصلتهم سابقًا. هل تريد المتابعة؟"
+                    : "إرسال الجدول أو التغييرات المعتمدة إلى عمال التجربة؟ لن تُعاد الرسائل المسجلة سابقًا دون تغيير."))
+                  sendPublishedWhatsAppTrial.mutate({ periodId: period.id, format: whatsAppFormat, forceWeekly });
               }}>
               {whatsappTrial.data.connectionTest
                 ? sendPublishedWhatsAppTrial.isPending ? "جارٍ إرسال اختبار الاتصال…" : "إرسال اختبار الاتصال لعمال التجربة"
@@ -520,13 +548,24 @@ export function WeeklyBoard() {
       <Dialog open={showWhatsAppPreview} onOpenChange={setShowWhatsAppPreview}>
         <DialogContent dir="rtl" className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>معاينة رسائل جدول التجربة</DialogTitle>
-            <DialogDescription>هذه معاينة من بيانات الأسبوع المعتمد، ولا ترسل رسائل. يظهر كل عامل برقم هاتفه المخفي جزئيًا.</DialogDescription>
+            <DialogTitle>معاينة بيانات جدول التجربة</DialogTitle>
+            <DialogDescription>هذه معاينة لبيانات الأسبوع المعتمد كاملًا، ولا ترسل رسائل. تظهر صورة الجدول عند توفرها. إذا أُرسل الجدول سابقًا، فالإرسال العادي يرسل الأيام التي تغيرت فقط. لإرسال الأسبوع كاملًا مرة أخرى اختر إعادة إرسال الجدول قبل الإرسال.</DialogDescription>
           </DialogHeader>
           {whatsAppPreview.isLoading ? <p role="status">جارٍ تجهيز الرسائل…</p> : whatsAppPreview.error ? <p role="alert">{whatsAppPreview.error.message}</p> : <>
             {!whatsAppPreview.data?.messages.length && <p>لا يوجد عامل في الأسبوع المعتمد برقم مطابق لقائمة التجربة. راجع أرقام العمال وإعدادات التجربة.</p>}
             {whatsAppPreview.data?.messages.map((entry) => <section key={entry.workerId} className="space-y-2 rounded-lg border p-3">
               <h3 className="font-semibold">{entry.name} · الرقم المنتهي بـ{entry.phoneEnding}</h3>
+              <p className="text-xs text-muted-foreground">
+                {entry.language ? `لغة الرسالة: ${entry.language === "ar" ? "العربية" : "الإنجليزية"}` : "لغة الرسالة غير مدعومة"}
+                {entry.deliveryFormat && ` · التنسيق: ${{ text: "نص", image: "صورة مع رسالة قصيرة", media: "صورة مع تفاصيل نصية" }[entry.deliveryFormat]}`}
+              </p>
+              {entry.configurationError && <p role="alert" className="text-destructive">{entry.configurationError}</p>}
+              {entry.imagePreview?.startsWith("data:image/png;base64,") && <img
+                src={entry.imagePreview}
+                alt={`معاينة صورة جدول ${entry.name}`}
+                className="mx-auto max-h-[32rem] max-w-full rounded border object-contain"
+                loading="lazy"
+              />}
               {entry.error ? <p role="alert" className="text-destructive">{entry.error}</p> : <table className="w-full text-sm">
                 <thead><tr className="border-b"><th className="p-2 text-right">اليوم</th><th className="p-2 text-right">التاريخ</th><th className="p-2 text-right">الدوام أو الإجازة</th></tr></thead>
                 <tbody>{WEEK_DAY_NAMES.map((name, index) => <tr key={name} className="border-b last:border-0"><td className="p-2">{name}</td><td className="p-2"><span dir="ltr">{entry.values?.[index * 3]}</span></td><td className="p-2"><div>{entry.values?.[index * 3 + 1]}</div><div>{entry.values?.[index * 3 + 2]}</div></td></tr>)}</tbody>
@@ -565,20 +604,20 @@ export function WeeklyBoard() {
       {isLoading ? (
         <div className="flex justify-center gap-2 py-12">
           <Loader2 className="h-5 w-5 animate-spin" />
-          جارٍ تحميل الأسبوع…
+          {text("جارٍ تحميل الأسبوع…", "Loading the week…", "ہفتہ لوڈ ہو رہا ہے…")}
         </div>
       ) : !data ? null : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm">
-              من <b dir="ltr">{weekStart}</b> إلى{" "}
-              <b dir="ltr">{data.weekEnd}</b> · {formatNumber(data.totalWorkers)} عامل ·{" "}
+              {text("من", "From", "از")} <b dir="ltr">{weekStart}</b> {text("إلى", "to", "تا")}{" "}
+              <b dir="ltr">{data.weekEnd}</b> · {formatNumber(data.totalWorkers)} {text("عامل", "workers", "کارکن")} ·{" "}
               <span className="text-blue-700 dark:text-blue-300">
-                الأزرق: فترات المشرف المختار
+                {text("الأزرق: فترات المشرف المختار", "Blue: selected supervisor’s shifts", "نیلا: منتخب سپروائزر کی شفٹیں")}
               </span>{" "}
               ·{" "}
               <span className="text-violet-700 dark:text-violet-300">
-                البنفسجي: فترات المشرفين الآخرين
+                {text("البنفسجي: فترات المشرفين الآخرين", "Purple: other supervisors’ shifts", "جامنی: دوسرے سپروائزرز کی شفٹیں")}
               </span>
             </p>
             {canApprove && period?.status === "draft" && (
@@ -586,13 +625,13 @@ export function WeeklyBoard() {
                 disabled={approve.isPending || Object.keys(drafts).length > 0}
                 onClick={() => approve.mutate({ periodId: period.id })}
               >
-                اعتماد ونشر الأسبوع
+                {text("اعتماد ونشر الأسبوع", "Approve and publish week", "ہفتہ منظور اور شائع کریں")}
               </Button>
             )}
             <span className="text-sm">
               {period?.status === "published"
-                ? "معتمد ومنشور"
-                : "مسودة — يحتاج اعتمادًا"}
+                ? text("معتمد ومنشور", "Approved and published", "منظور اور شائع")
+                : text("مسودة — يحتاج اعتمادًا", "Draft — approval needed", "مسودہ — منظوری درکار")}
             </span>
             {canEdit && (
               <div className="flex flex-wrap gap-2">
@@ -602,7 +641,7 @@ export function WeeklyBoard() {
                   disabled={!ownerId || copying || save.isPending || weekLocked || !visibleWorkers.length || !filtersSettled}
                 >
                   <Copy className="h-4 w-4" />
-                  {copying ? "جارٍ النسخ…" : "نسخ فتراتي لعمال الصفحة من الأسبوع السابق"}
+                  {copying ? text("جارٍ النسخ…", "Copying…", "نقل ہو رہا ہے…") : text("نسخ فتراتي لعمال الصفحة من الأسبوع السابق", "Copy my shifts from last week for this page", "اس صفحے کے کارکنوں کے لیے پچھلے ہفتے کی میری شفٹیں نقل کریں")}
                 </Button>
                 <Button
                   variant="outline"
@@ -613,7 +652,7 @@ export function WeeklyBoard() {
                     setError("");
                   }}
                 >
-                  تراجع عن التعديلات
+                  {text("تراجع عن التعديلات", "Discard changes", "تبدیلیاں واپس لیں")}
                 </Button>
                 <Button
                   disabled={
@@ -635,7 +674,7 @@ export function WeeklyBoard() {
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  حفظ الأسبوع{" "}
+                  {text("حفظ الأسبوع", "Save week", "ہفتہ محفوظ کریں")}{" "}
                   {Object.keys(drafts).length
                     ? `(${Object.keys(drafts).length})`
                     : ""}
@@ -643,29 +682,29 @@ export function WeeklyBoard() {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="صفحات العمال">
-            <span role="status">عرض {formatNumber(data.totalWorkers ? offset + 1 : 0)}–{formatNumber(offset + visibleWorkers.length)} من {formatNumber(data.totalWorkers)} عامل · الصفحة {formatNumber(Math.floor(offset / PAGE_SIZE) + 1)} من {formatNumber(Math.max(1, Math.ceil(data.totalWorkers / PAGE_SIZE)))}</span>
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label={text("صفحات العمال", "Worker pages", "کارکنوں کے صفحات")}>
+            <span role="status">{text(`عرض ${formatNumber(data.totalWorkers ? offset + 1 : 0)}–${formatNumber(offset + visibleWorkers.length)} من ${formatNumber(data.totalWorkers)} عامل · الصفحة ${formatNumber(Math.floor(offset / PAGE_SIZE) + 1)} من ${formatNumber(Math.max(1, Math.ceil(data.totalWorkers / PAGE_SIZE)))}`, `Showing ${formatNumber(data.totalWorkers ? offset + 1 : 0)}–${formatNumber(offset + visibleWorkers.length)} of ${formatNumber(data.totalWorkers)} workers · Page ${formatNumber(Math.floor(offset / PAGE_SIZE) + 1)} of ${formatNumber(Math.max(1, Math.ceil(data.totalWorkers / PAGE_SIZE)))}`, `${formatNumber(data.totalWorkers)} میں سے ${formatNumber(data.totalWorkers ? offset + 1 : 0)}–${formatNumber(offset + visibleWorkers.length)} کارکن · صفحہ ${formatNumber(Math.floor(offset / PAGE_SIZE) + 1)} از ${formatNumber(Math.max(1, Math.ceil(data.totalWorkers / PAGE_SIZE)))}`)}</span>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={!offset || !!Object.keys(drafts).length || save.isPending || copying} onClick={() => { setOffset(Math.max(0, offset - PAGE_SIZE)); setSelectedWorkers([]); setSelectedDates([]); }}>الصفحة السابقة</Button>
-              <Button variant="outline" disabled={offset + PAGE_SIZE >= data.totalWorkers || !!Object.keys(drafts).length || save.isPending || copying} onClick={() => { setOffset(offset + PAGE_SIZE); setSelectedWorkers([]); setSelectedDates([]); }}>الصفحة التالية</Button>
+              <Button variant="outline" disabled={!offset || !!Object.keys(drafts).length || save.isPending || copying} onClick={() => { setOffset(Math.max(0, offset - PAGE_SIZE)); setSelectedWorkers([]); setSelectedDates([]); }}>{text("الصفحة السابقة", "Previous page", "پچھلا صفحہ")}</Button>
+              <Button variant="outline" disabled={offset + PAGE_SIZE >= data.totalWorkers || !!Object.keys(drafts).length || save.isPending || copying} onClick={() => { setOffset(offset + PAGE_SIZE); setSelectedWorkers([]); setSelectedDates([]); }}>{text("الصفحة التالية", "Next page", "اگلا صفحہ")}</Button>
             </div>
           </div>
-          {!!Object.keys(drafts).length && <p className="text-xs text-amber-800 dark:text-amber-300">احفظ تعديلات الصفحة أو تراجع عنها قبل البحث أو تغيير المركز أو الصفحة.</p>}
+          {!!Object.keys(drafts).length && <p className="text-xs text-amber-800 dark:text-amber-300">{text("احفظ تعديلات الصفحة أو تراجع عنها قبل البحث أو تغيير المركز أو الصفحة.", "Save or discard this page’s changes before searching or changing cost center or page.", "تلاش یا لاگت مرکز یا صفحہ تبدیل کرنے سے پہلے تبدیلیاں محفوظ کریں یا واپس لیں۔")}</p>}
           <p className="text-xs text-muted-foreground lg:hidden">
-            اسحب الجدول أفقيًا لمشاهدة بقية الأيام ورصيد الأسبوع.
+            {text("اسحب الجدول أفقيًا لمشاهدة بقية الأيام ورصيد الأسبوع.", "Scroll horizontally to view the remaining days and weekly balance.", "باقی دن اور ہفتہ وار اوقات دیکھنے کے لیے جدول کو افقی اسکرول کریں۔")}
           </p>
-          <div ref={virtual.scrollRef} style={virtual.viewportStyle} className="overflow-x-auto rounded-xl border bg-background" tabIndex={0} aria-label="جدول عمال الصفحة، مرر لعرض بقية العمال">
+            <div ref={virtual.scrollRef} style={virtual.viewportStyle} className="overflow-x-auto rounded-xl border bg-background" tabIndex={0} aria-label={text("جدول عمال الصفحة، مرر لعرض بقية العمال", "Worker schedule, scroll to view more workers", "کارکنوں کا شیڈول، مزید کارکنوں کو دیکھنے کے لیے اسکرول کریں")}>
             <table className="w-full min-w-[1120px] table-fixed border-collapse text-sm" aria-rowcount={visibleWorkers.length + 1}>
               <colgroup><col style={{width:224}} />{dates.map((date) => <col key={date} style={{width:112}} />)}<col style={{width:112}} /></colgroup>
               <thead ref={virtual.headerRef} className="sticky top-0 z-20 bg-muted">
                 <tr>
-                  <th className="sticky right-0 z-20 min-w-48 bg-muted p-3 text-right">
-                    العامل{" "}
+                  <th className={`sticky ${language === "en" ? "left-0" : "right-0"} z-20 min-w-48 bg-muted p-3 text-start`}>
+                    {text("العامل", "Worker", "کارکن")}{" "}
                     {canEdit && (
                       <label className="mt-2 flex items-center gap-2 font-normal">
                         <input
                           type="checkbox"
-                          aria-label="تحديد جميع عمال الصفحة"
+                          aria-label={text("تحديد جميع عمال الصفحة", "Select all workers on this page", "اس صفحے کے تمام کارکن منتخب کریں")}
                           checked={
                             !!visibleWorkers.length &&
                             visibleWorkers.every((w) =>
@@ -680,13 +719,13 @@ export function WeeklyBoard() {
                             )
                           }
                         />
-                        تحديد عمال الصفحة
+                        {text("تحديد عمال الصفحة", "Select page workers", "صفحے کے کارکن منتخب کریں")}
                       </label>
                     )}
                   </th>
                   {dates.map((date, i) => (
                     <th key={date} className="min-w-28 border-r p-3">
-                      <div>{WEEK_DAY_NAMES[i]}</div>
+                      <div>{weekday(i)}</div>
                       <div className="mt-1 text-xs font-normal" dir="ltr">
                         {date.slice(5)}
                       </div>
@@ -694,7 +733,7 @@ export function WeeklyBoard() {
                         <input
                           className="mt-2"
                           type="checkbox"
-                          aria-label={`تحديد ${WEEK_DAY_NAMES[i]}`}
+                          aria-label={text(`تحديد ${weekday(i)}`, `Select ${weekday(i)}`, `${weekday(i)} منتخب کریں`)}
                           checked={selectedDates.includes(date)}
                           onChange={(e) =>
                             setSelectedDates((current) =>
@@ -707,7 +746,7 @@ export function WeeklyBoard() {
                       )}
                     </th>
                   ))}
-                  <th className="min-w-28 border-r p-3">رصيد الأسبوع</th>
+                  <th className="min-w-28 border-r p-3">{text("رصيد الأسبوع", "Weekly balance", "ہفتہ وار اوقات")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -736,18 +775,12 @@ export function WeeklyBoard() {
             </table>
             {!visibleWorkers.length && (
               <div className="p-10 text-center text-muted-foreground">
-                لا يوجد عمال ضمن هذا الاختيار. راجع ربط العمال بالمشرف وإعدادات
-                مركز التكلفة.
+                {text("لا يوجد عمال ضمن هذا الاختيار. راجع ربط العمال بالمشرف وإعدادات مركز التكلفة.", "No workers match this selection. Check supervisor assignments and cost center setup.", "اس انتخاب میں کوئی کارکن نہیں۔ سپروائزر کی ذمہ داریوں اور لاگت مرکز کی ترتیب چیک کریں۔")}
               </div>
             )}
           </div>
           <p className="text-xs leading-6 text-muted-foreground">
-            الأوقات المعروضة حضور مخطط، والرصيد يحسب العمل بعد استبعاد الراحة
-            المحددة لكل فترة. مجموع الراحة اليومية نصف ساعة. تعديل أسبوع معتمد
-            يعيده مسودة إلى حين إعادة اعتماده. الزيادة المخططة والفعلية تحتاجان
-            مراجعة المشرف واعتماد الشؤون الإدارية، وتبقى البصمة الفعلية محفوظة.
-            تُستخدم جهة العامل المعتادة تلقائيًا، ويمكن تحديد موقع ومهمة مختلفين
-            لكل فترة من إعداد مكان العمل والمهمة.
+            {text("الأوقات المعروضة حضور مخطط، والرصيد يحسب العمل بعد استبعاد الراحة المحددة لكل فترة. مجموع الراحة اليومية نصف ساعة. تعديل أسبوع معتمد يعيده مسودة إلى حين إعادة اعتماده. الزيادة المخططة والفعلية تحتاجان مراجعة المشرف واعتماد الشؤون الإدارية، وتبقى البصمة الفعلية محفوظة. تُستخدم جهة العامل المعتادة تلقائيًا، ويمكن تحديد موقع ومهمة مختلفين لكل فترة من إعداد مكان العمل والمهمة.", "The displayed times are planned attendance. Work balances exclude each shift's break. Total daily break is half an hour. Editing an approved week returns it to draft until reapproved. Planned and actual overtime require supervisor review and administration approval; actual clock records remain saved. The worker's usual workplace is used unless a different location or task is selected.", "دکھائے گئے اوقات منصوبہ بند حاضری ہیں۔ کام کے اوقات میں ہر شفٹ کا وقفہ شامل نہیں۔ روزانہ کل وقفہ آدھا گھنٹہ ہے۔ منظور شدہ ہفتے میں ترمیم سے وہ دوبارہ منظوری تک مسودہ بن جاتا ہے۔ منصوبہ بند اور حقیقی اضافی وقت کے لیے سپروائزر کا جائزہ اور انتظامیہ کی منظوری ضروری ہے؛ اصل حاضری محفوظ رہتی ہے۔ مختلف مقام یا کام منتخب نہ ہو تو کارکن کی معمول کی جگہ استعمال ہوتی ہے۔")}
           </p>
         </>
       )}
@@ -758,16 +791,15 @@ export function WeeklyBoard() {
         }}
       >
         <DialogContent
-          dir="rtl"
+          dir={language === "en" ? "ltr" : "rtl"}
           className="flex h-[90vh] max-w-[96vw] flex-col sm:max-w-[96vw]"
         >
           <DialogHeader>
             <DialogTitle>
-              معاينة الجدول — {normalizeDigits(printPreview?.center ?? "")}
+              {text("معاينة الجدول", "Schedule preview", "شیڈول پیش نظارہ")} — {normalizeDigits(printPreview?.center ?? "")}
             </DialogTitle>
             <DialogDescription>
-              راجع جدول المركز ثم اختر الطباعة أو الحفظ بصيغة PDF من نافذة
-              الطباعة. مقاس الورق A4 بالاتجاه الأفقي.
+              {text("راجع جدول المركز ثم اختر الطباعة أو الحفظ بصيغة PDF من نافذة الطباعة. مقاس الورق A4 بالاتجاه الأفقي.", "Review the cost center schedule, then print or save as PDF. Use A4 landscape.", "لاگت مرکز کا شیڈول دیکھیں، پھر پرنٹ کریں یا PDF محفوظ کریں۔ A4 افقی استعمال کریں۔")}
             </DialogDescription>
           </DialogHeader>
           <iframe
@@ -782,7 +814,7 @@ export function WeeklyBoard() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setPrintPreview(null)}>
-              إغلاق المعاينة
+              {text("إغلاق المعاينة", "Close preview", "پیش نظارہ بند کریں")}
             </Button>
             <Button
               disabled={!printReady}
@@ -793,7 +825,7 @@ export function WeeklyBoard() {
                 previewWindow.print();
               }}
             >
-              <Printer className="h-4 w-4" /> طباعة / حفظ PDF
+              <Printer className="h-4 w-4" /> {text("طباعة / حفظ PDF", "Print / Save PDF", "پرنٹ / PDF محفوظ کریں")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -804,18 +836,17 @@ export function WeeklyBoard() {
           if (!open) setEditor(null);
         }}
       >
-        <DialogContent dir="rtl" className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent dir={language === "en" ? "ltr" : "rtl"} className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              فترات العمل ·{" "}
+              {text("فترات العمل", "Work shifts", "کام کی شفٹیں")} ·{" "}
               {normalizeDigits(
                 data?.workers.find((w) => w.id === editor?.workerId)?.name ??
                   "",
               )}
             </DialogTitle>
             <DialogDescription>
-              {editor?.date} · تعديل فترات المشرف المختار فقط. الأوقات قبل 04:30
-              تتبع اليوم التالي ضمن اليوم التشغيلي. (+1) تعني اليوم التالي.
+              {editor?.date} · {text("تعديل فترات المشرف المختار فقط. الأوقات قبل 04:30 تتبع اليوم التالي ضمن اليوم التشغيلي. (+1) تعني اليوم التالي.", "Edit only the selected supervisor’s shifts. Times before 04:30 are on the next calendar day within the operational day. (+1) means the next day.", "صرف منتخب سپروائزر کی شفٹوں میں ترمیم کریں۔ 04:30 سے پہلے کے اوقات عملی دن کے اگلے کیلنڈر دن میں آتے ہیں۔ (+1) کا مطلب اگلا دن ہے۔")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -823,7 +854,7 @@ export function WeeklyBoard() {
               <div key={i} className="rounded-lg border p-3">
                 <div className="flex items-end gap-2">
                 <div className="flex-1 space-y-1">
-                  <Label htmlFor={`start-${i}`}>من</Label>
+                  <Label htmlFor={`start-${i}`}>{text("من", "From", "سے")}</Label>
                   <Input
                     id={`start-${i}`}
                     type="time"
@@ -842,7 +873,7 @@ export function WeeklyBoard() {
                   />
                 </div>
                 <div className="flex-1 space-y-1">
-                  <Label htmlFor={`end-${i}`}>إلى</Label>
+                  <Label htmlFor={`end-${i}`}>{text("إلى", "To", "تک")}</Label>
                   <Input
                     id={`end-${i}`}
                     type="time"
@@ -861,7 +892,7 @@ export function WeeklyBoard() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor={`break-${i}`}>راحة</Label>
+                  <Label htmlFor={`break-${i}`}>{text("راحة", "Break", "وقفہ")}</Label>
                   <select
                     id={`break-${i}`}
                     className="h-9 rounded-md border bg-background px-2 text-sm"
@@ -880,8 +911,8 @@ export function WeeklyBoard() {
                       )
                     }
                   >
-                    <option value={0}>بدون</option>
-                    <option value={30}>30 دقيقة</option>
+                    <option value={0}>{text("بدون", "None", "کوئی نہیں")}</option>
+                    <option value={30}>{text("30 دقيقة", "30 minutes", "30 منٹ")}</option>
                   </select>
                 </div>
                 <Button
@@ -932,11 +963,10 @@ export function WeeklyBoard() {
               }
             >
               <Plus className="h-4 w-4" />
-              إضافة فترة
+              {text("إضافة فترة", "Add shift", "شفٹ شامل کریں")}
             </Button>
             <p className="text-xs text-muted-foreground">
-              حذف جميع الفترات يفرغ دوام هذا المشرف في اليوم. اختر عمالًا
-              وأيامًا من الجدول إذا أردت تطبيق نفس الفترات على مجموعة.
+              {text("حذف جميع الفترات يفرغ دوام هذا المشرف في اليوم. اختر عمالًا وأيامًا من الجدول إذا أردت تطبيق نفس الفترات على مجموعة.", "Removing all shifts clears this supervisor’s work for the day. Select workers and days in the schedule to apply the same shifts to a group.", "تمام شفٹیں حذف کرنے سے اس دن کے لیے اس سپروائزر کا کام خالی ہو جائے گا۔ ایک جیسی شفٹیں گروپ پر لاگو کرنے کے لیے کارکن اور دن منتخب کریں۔")}
             </p>
             {error && (
               <p role="alert" className="text-sm text-red-700">
@@ -950,12 +980,11 @@ export function WeeklyBoard() {
               disabled={!selectedWorkers.length || !selectedDates.length}
               onClick={() => stageEditor(true)}
             >
-              تطبيق على المحدد ({selectedWorkers.length} عامل ×{" "}
-              {selectedDates.length} يوم)
+              {text(`تطبيق على المحدد (${selectedWorkers.length} عامل × ${selectedDates.length} يوم)`, `Apply to selection (${selectedWorkers.length} workers × ${selectedDates.length} days)`, `منتخب پر لاگو کریں (${selectedWorkers.length} کارکن × ${selectedDates.length} دن)`)}
             </Button>
             <Button onClick={() => stageEditor(false)}>
               <CalendarDays className="h-4 w-4" />
-              تطبيق على هذا اليوم
+              {text("تطبيق على هذا اليوم", "Apply to this day", "اس دن پر لاگو کریں")}
             </Button>
           </DialogFooter>
         </DialogContent>

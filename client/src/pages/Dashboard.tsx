@@ -22,9 +22,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { permits } from "@shared/access-control";
 import { operationalDate } from "@shared/operational-day";
+import { useLanguage } from "@/lib/i18n";
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const [, navigate] = useLocation();
   const [date, setDate] = useState(operationalDate);
   const [search, setSearch] = useState("");
@@ -66,36 +69,36 @@ export default function Dashboard() {
   useEffect(() => setPage(current => Math.min(current, pageCount)), [pageCount]);
   const links = [
     {
-      label: "إعداد الجدول الأسبوعي",
-      description: "الأحد إلى السبت",
+      label: text("إعداد الجدول الأسبوعي", "Prepare weekly schedule", "ہفتہ وار شیڈول بنائیں"),
+      description: text("الأحد إلى السبت", "Sunday to Saturday", "اتوار سے ہفتہ"),
       path: "/schedules",
       icon: CalendarDays,
       show: canSchedule,
     },
     {
-      label: role === "supervisor" ? "بطاقات عمالي" : "بطاقات العمال",
-      description: "الدوام والبيانات والارتباطات",
+      label: role === "supervisor" ? text("بطاقات عمالي", "My workers", "میرے کارکنان") : text("بطاقات العمال", "Worker profiles", "کارکنوں کے پروفائل"),
+      description: text("الدوام والبيانات والارتباطات", "Schedules, details and assignments", "اوقات، تفصیلات اور ذمہ داریاں"),
       path: "/workers",
       icon: Users,
       show: canWorkers,
     },
     {
-      label: "العمل الإضافي",
-      description: "الزيادات وقرارات اعتمادها",
+      label: text("العمل الإضافي", "Overtime", "اضافی کام"),
+      description: text("الزيادات وقرارات اعتمادها", "Overtime and approval decisions", "اضافی اوقات اور منظوری کے فیصلے"),
       path: "/overtime",
       icon: Timer,
       show: canOvertime,
     },
     {
-      label: "المراجعات والاعتمادات",
-      description: "طلبات تحتاج متابعة",
+      label: text("المراجعات والاعتمادات", "Reviews and approvals", "جائزے اور منظوری"),
+      description: text("طلبات تحتاج متابعة", "Requests needing attention", "توجہ طلب درخواستیں"),
       path: "/requests",
       icon: CheckSquare,
       show: canReview,
     },
     {
-      label: "تهيئة البرنامج",
-      description: "الهيكل، المشرفون، العمال",
+      label: text("تهيئة البرنامج", "System setup", "سسٹم کی ترتیب"),
+      description: text("الهيكل، المشرفون، العمال", "Organization, supervisors and workers", "تنظیم، سپروائزر اور کارکن"),
       path: "/settings",
       icon: Settings,
       show: canSetup,
@@ -104,25 +107,25 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div dir="rtl" className="space-y-6">
+      <div dir={language === "en" ? "ltr" : "rtl"} className="space-y-6">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div>
-            <h1 className="text-2xl font-bold">اليوم</h1>
+            <h1 className="text-2xl font-bold">{text("اليوم", "Today", "آج")}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
               {role === "supervisor"
-                ? "متابعة العمال المرتبطين بك وترتيب ساعاتهم."
-                : "الحضور والجدولة والإجراءات التي تحتاج متابعتك."}
+                ? text("متابعة العمال المرتبطين بك وترتيب ساعاتهم.", "Track your workers and arrange their hours.", "اپنے کارکنوں اور ان کے اوقات کی نگرانی کریں۔")
+                : text("الحضور والجدولة والإجراءات التي تحتاج متابعتك.", "Attendance, schedules and actions needing attention.", "حاضری، شیڈول اور توجہ طلب کام۔")}
             </p>
           </div>
           {canDaily && (
             <div className="flex flex-wrap items-end gap-2">
               <div>
                 <Label htmlFor="overview-date" className="mb-2 block">
-                  تاريخ المتابعة
+                  {text("تاريخ المتابعة", "Overview date", "جائزے کی تاریخ")}
                 </Label>
                 <Input
                   id="overview-date"
-                  aria-label="تاريخ المتابعة"
+                  aria-label={text("تاريخ المتابعة", "Overview date", "جائزے کی تاریخ")}
                   type="date"
                   value={date}
                   onChange={(event) => {
@@ -135,12 +138,12 @@ export default function Dashboard() {
                 variant="outline"
                 onClick={() => setDate(operationalDate())}
               >
-                اليوم
+                {text("اليوم", "Today", "آج")}
               </Button>
               <Button
                 variant="outline"
                 size="icon"
-                aria-label="تحديث المتابعة"
+                aria-label={text("تحديث المتابعة", "Refresh overview", "جائزہ تازہ کریں")}
                 disabled={query.isFetching}
                 onClick={() => query.refetch()}
               >
@@ -159,7 +162,7 @@ export default function Dashboard() {
               <button
                 key={link.path}
                 onClick={() => navigate(link.path)}
-                className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-right transition-colors hover:border-primary/60"
+                className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-start transition-colors hover:border-primary/60"
               >
                 <link.icon className="h-6 w-6 shrink-0 text-primary" />
                 <div>
@@ -176,12 +179,12 @@ export default function Dashboard() {
           <Card>
             <CardContent className="space-y-4 pt-6">
               <p className="text-sm text-muted-foreground">
-                {role === "worker" ? "يمكنك متابعة بياناتك وجدولك من بطاقتك الشخصية." : "حسابك لا يتيح متابعة حضور جميع العمال."}
+                {role === "worker" ? text("يمكنك متابعة بياناتك وجدولك من بطاقتك الشخصية.", "View your details and schedule in your profile.", "اپنی تفصیلات اور شیڈول اپنے پروفائل میں دیکھیں۔") : text("حسابك لا يتيح متابعة حضور جميع العمال.", "Your account cannot view attendance for all workers.", "آپ کے اکاؤنٹ کو تمام کارکنوں کی حاضری دیکھنے کی اجازت نہیں۔")}
               </p>
-              {role === "worker" && user.workerId && <Button variant="outline" onClick={() => navigate(`/workers/${user.workerId}`)}>فتح بطاقتي وجدولي</Button>}
+              {role === "worker" && user.workerId && <Button variant="outline" onClick={() => navigate(`/workers/${user.workerId}`)}>{text("فتح بطاقتي وجدولي", "Open my profile and schedule", "میرا پروفائل اور شیڈول کھولیں")}</Button>}
               {allowed("payroll:read") && (
                 <Button variant="outline" onClick={() => navigate("/payroll")}>
-                  فتح الرواتب
+                  {text("فتح الرواتب", "Open payroll", "تنخواہیں کھولیں")}
                 </Button>
               )}
             </CardContent>
@@ -194,18 +197,18 @@ export default function Dashboard() {
                 role="alert"
                 className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
               >
-                تعذر تحميل المتابعة. {query.error.message}
+                {text("تعذر تحميل المتابعة.", "Could not load the overview.", "جائزہ لوڈ نہیں ہو سکا۔")} {query.error.message}
                 <Button variant="link" onClick={() => query.refetch()}>
-                  إعادة المحاولة
+                  {text("إعادة المحاولة", "Try again", "دوبارہ کوشش کریں")}
                 </Button>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               {[
-                ["العمال", summary?.workers],
-                ["سجّلوا الحضور", summary?.attended],
-                ["على رأس العمل", summary?.onSite],
-                ["حضور متأخر", summary?.late],
+                [text("العمال", "Workers", "کارکنان"), summary?.workers],
+                [text("سجّلوا الحضور", "Checked in", "حاضری درج"), summary?.attended],
+                [text("على رأس العمل", "On site", "کام پر موجود"), summary?.onSite],
+                [text("حضور متأخر", "Late arrivals", "دیر سے آنے والے"), summary?.late],
               ].map(([label, value]) => (
                 <Card key={String(label)}>
                   <CardContent className="pt-5">
@@ -220,8 +223,7 @@ export default function Dashboard() {
             {Boolean(summary?.incompleteSetup) && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm">
                 <p>
-                  هناك {summary?.incompleteSetup} عامل لم تُستكمل ساعاتهم
-                  اليومية أو أيام راحتهم.
+                  {text(`هناك ${summary?.incompleteSetup} عامل لم تُستكمل ساعاتهم اليومية أو أيام راحتهم.`, `${summary?.incompleteSetup} workers need daily hours or rest days configured.`, `${summary?.incompleteSetup} کارکنوں کے روزانہ اوقات یا آرام کے دن مقرر نہیں ہیں۔`)}
                 </p>
                 {canWorkers && (
                   <Button
@@ -229,7 +231,7 @@ export default function Dashboard() {
                     size="sm"
                     onClick={() => navigate("/workers")}
                   >
-                    مراجعة بطاقات العمال
+                    {text("مراجعة بطاقات العمال", "Review worker profiles", "کارکنوں کے پروفائل کا جائزہ")}
                   </Button>
                 )}
               </div>
@@ -238,11 +240,9 @@ export default function Dashboard() {
               <CardContent className="space-y-4 pt-5">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row">
                   <div>
-                    <h2 className="font-semibold">متابعة الحضور والساعات</h2>
+                    <h2 className="font-semibold">{text("متابعة الحضور والساعات", "Attendance and hours", "حاضری اور اوقات")}</h2>
                     <p className="mt-1 text-xs leading-6 text-muted-foreground">
-                      الساعات المسجلة من سجلات الحضور المكتملة. المتبقي للجدولة
-                      = الساعات المطلوبة ناقص المخطط؛ لا يعني اعتماد ساعات
-                      العمل.
+                      {text("الساعات المسجلة من سجلات الحضور المكتملة. المتبقي للجدولة = الساعات المطلوبة ناقص المخطط؛ لا يعني اعتماد ساعات العمل.", "Recorded hours come from completed attendance records. Remaining to schedule is required hours minus planned hours; it does not mean work hours are approved.", "درج شدہ اوقات مکمل حاضری ریکارڈ سے ہیں۔ باقی شیڈول مطلوبہ اوقات میں سے منصوبہ بند اوقات نکال کر ہے؛ یہ کام کے اوقات کی منظوری نہیں۔")}
                     </p>
                   </div>
                   {["admin", "hr_admin"].includes(role) && (
@@ -251,7 +251,7 @@ export default function Dashboard() {
                       size="sm"
                       onClick={() => navigate("/attendance")}
                     >
-                      تفاصيل الحضور
+                      {text("تفاصيل الحضور", "Attendance details", "حاضری کی تفصیلات")}
                     </Button>
                   )}
                 </div>
@@ -259,28 +259,28 @@ export default function Dashboard() {
                   <div className="relative flex-1">
                     <Search className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
                     <Input
-                      aria-label="البحث في المتابعة"
-                      placeholder="اسم العامل، رقمه، أو القسم"
+                      aria-label={text("البحث في المتابعة", "Search overview", "جائزے میں تلاش کریں")}
+                      placeholder={text("اسم العامل، رقمه، أو القسم", "Worker name, number, or department", "کارکن کا نام، نمبر یا شعبہ")}
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       className="pr-9"
                     />
                   </div>
                   <select
-                    aria-label="تصفية المتابعة"
+                    aria-label={text("تصفية المتابعة", "Filter overview", "جائزہ فلٹر کریں")}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm"
                     value={filter}
                     onChange={(event) => setFilter(event.target.value)}
                   >
-                    <option value="all">كل العمال</option>
-                    <option value="onSite">على رأس العمل</option>
-                    <option value="noPunch">لم يسجلوا حضورًا</option>
+                    <option value="all">{text("كل العمال", "All workers", "تمام کارکنان")}</option>
+                    <option value="onSite">{text("على رأس العمل", "On site", "کام پر موجود")}</option>
+                    <option value="noPunch">{text("لم يسجلوا حضورًا", "Not checked in", "حاضری درج نہیں")}</option>
                     <option value="unplanned">
-                      لديهم ساعات متبقية للجدولة
+                      {text("لديهم ساعات متبقية للجدولة", "Hours remaining to schedule", "شیڈول کے لیے باقی اوقات")}
                     </option>
                   </select>
                 </div>
-                {rows.length > 0 && <nav aria-label="صفحات المتابعة اليومية" className="flex flex-wrap items-center justify-between gap-2 text-sm"><p>عرض {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, rows.length)} من {rows.length} عامل</p><div className="flex items-center gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(current => current - 1)}>السابق</Button><span>صفحة {page} من {pageCount}</span><Button variant="outline" size="sm" disabled={page === pageCount} onClick={() => setPage(current => current + 1)}>التالي</Button></div></nav>}
+                {rows.length > 0 && <nav aria-label={text("صفحات المتابعة اليومية", "Daily overview pages", "روزانہ جائزے کے صفحات")} className="flex flex-wrap items-center justify-between gap-2 text-sm"><p>{text(`عرض ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, rows.length)} من ${rows.length} عامل`, `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, rows.length)} of ${rows.length} workers`, `${rows.length} میں سے ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, rows.length)} کارکن` )}</p><div className="flex items-center gap-2"><Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(current => current - 1)}>{text("السابق", "Previous", "پچھلا")}</Button><span>{text(`صفحة ${page} من ${pageCount}`, `Page ${page} of ${pageCount}`, `صفحہ ${page} از ${pageCount}`)}</span><Button variant="outline" size="sm" disabled={page === pageCount} onClick={() => setPage(current => current + 1)}>{text("التالي", "Next", "اگلا")}</Button></div></nav>}
                 {query.isLoading ? (
                   <div className="flex justify-center p-12">
                     <Loader2 className="h-6 w-6 animate-spin" />
@@ -289,29 +289,29 @@ export default function Dashboard() {
                   <div className="space-y-3 py-10 text-center">
                     <p className="text-sm text-muted-foreground">
                       {summary?.workers
-                        ? "لا توجد نتائج مطابقة."
-                        : "لا يوجد عمال متاحون للمتابعة ضمن صلاحياتك."}
+                        ? text("لا توجد نتائج مطابقة.", "No matching results.", "کوئی مماثل نتیجہ نہیں۔")
+                        : text("لا يوجد عمال متاحون للمتابعة ضمن صلاحياتك.", "No workers are available within your permissions.", "آپ کی اجازتوں میں کوئی کارکن دستیاب نہیں۔")}
                     </p>
                     {canSetup && !summary?.workers && (
                       <Button onClick={() => navigate("/settings")}>
-                        ابدأ بالتهيئة
+                        {text("ابدأ بالتهيئة", "Start setup", "ترتیب شروع کریں")}
                       </Button>
                     )}
                   </div>
                 ) : (
                   <div className="max-w-full overflow-x-auto">
-                    <table className="w-full min-w-[800px] text-right text-sm">
+                    <table className="w-full min-w-[800px] text-start text-sm">
                       <thead>
                         <tr className="border-b border-border text-xs text-muted-foreground">
                           {[
-                            "العامل",
-                            "القسم",
-                            "الحالة",
-                            "الحضور",
-                            "الانصراف",
-                            "المخطط",
-                            "الساعات المسجلة",
-                            "المتبقي للجدولة",
+                            text("العامل", "Worker", "کارکن"),
+                            text("القسم", "Department", "شعبہ"),
+                            text("الحالة", "Status", "حالت"),
+                            text("الحضور", "Check in", "آمد"),
+                            text("الانصراف", "Check out", "روانگی"),
+                            text("المخطط", "Planned", "منصوبہ بند"),
+                            text("الساعات المسجلة", "Recorded hours", "درج شدہ اوقات"),
+                            text("المتبقي للجدولة", "Remaining to schedule", "شیڈول کے لیے باقی"),
                             "",
                           ].map((label, index) => (
                             <th
@@ -341,16 +341,16 @@ export default function Dashboard() {
                             <td className="px-3 py-4">
                               <Badge variant="outline">
                                 {row.onSite
-                                  ? "على رأس العمل"
+                                  ? text("على رأس العمل", "On site", "کام پر موجود")
                                   : row.attended
-                                    ? "انصرف"
+                                    ? text("انصرف", "Checked out", "روانہ ہو گیا")
                                     : row.isRestDay
-                                      ? "راحة"
+                                      ? text("راحة", "Rest day", "آرام کا دن")
                                       : row.isLeaveDay
-                                        ? "إجازة"
+                                        ? text("إجازة", "Leave", "چھٹی")
                                         : row.isHolidayDay
-                                          ? "عطلة"
-                                          : "لا يوجد حضور"}
+                                          ? text("عطلة", "Holiday", "تعطیل")
+                                          : text("لا يوجد حضور", "Not checked in", "حاضری درج نہیں")}
                               </Badge>
                             </td>
                             <td className="whitespace-nowrap px-3 py-4">
@@ -360,13 +360,13 @@ export default function Dashboard() {
                               {riyadhTime(row.checkOut)}
                             </td>
                             <td className="px-3 py-4">
-                              {hoursLabel(row.plannedHours)}
+                              {hoursLabel(row.plannedHours, language)}
                             </td>
                             <td className="px-3 py-4">
-                              {hoursLabel(row.actualHours)}
+                              {hoursLabel(row.actualHours, language)}
                             </td>
                             <td className="px-3 py-4">
-                              {hoursLabel(row.remainingToSchedule)}
+                              {hoursLabel(row.remainingToSchedule, language)}
                             </td>
                             <td className="px-3 py-4">
                               {canWorkers && (
@@ -375,7 +375,7 @@ export default function Dashboard() {
                                   variant="ghost"
                                   onClick={() => navigate("/workers/" + row.id)}
                                 >
-                                  البطاقة
+                                  {text("البطاقة", "Profile", "پروفائل")}
                                 </Button>
                               )}
                             </td>

@@ -258,6 +258,7 @@ export const orgStructureRouter = router({
         departmentId: z.number().int().positive(),
         nameAr: nameStr.optional(),
         nameEn: z.string().max(255).optional(),
+        nameUr: z.string().max(255).optional(),
         isActive: z.boolean().optional(),
       }),
     )

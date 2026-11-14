@@ -32,13 +32,22 @@ import { toast } from "sonner";
 import { normalizeDigits } from "@shared/display-format";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
+import { localizedName } from "@/lib/localized-data";
 
 type CatalogItem = {
   id: number;
   code: string;
   nameAr: string;
+  nameEn?: string | null;
+  nameUr?: string | null;
   isActive: boolean;
 };
+const setupText = {
+  ar: { loading:"تحميل الهيكل التشغيلي…", loadError:"تعذر تحميل الهيكل التشغيلي.", retry:"إعادة المحاولة", intro:"ابدأ بمركز التكلفة، ثم أضف مواقعه وأقسام كل موقع من نفس الشاشة. يمكنك اختيار موقع أو قسم موجود وإضافته هنا دون تكراره.", selectedPath:"المسار المختار", addFirst:"أضف مركز التكلفة الأول", centers:"مراكز التكلفة", centerHelp:"اختر المركز لإظهار مواقعه", addCenter:"إضافة مركز تكلفة", locations:"المواقع", addLocation:"إضافة موقع", linkLocation:"ربط موقع موجود", departments:"الأقسام", addDepartment:"إضافة قسم", linkDepartment:"ربط قسم موجود", chooseLocation:"اختر موقعًا أولًا", locationsOf:"مواقع", departmentsOf:"أقسام", deleted:"تم حذف العنصر", unlinked:"تم فك الارتباط مع إبقاء العنصر محفوظًا", actionError:"تعذر تنفيذ العملية. حاول مجددًا.", delete:"حذف", unlink:"فك ارتباط", cancel:"إلغاء", confirmDelete:"تأكيد الحذف", confirmUnlink:"تأكيد فك الارتباط", none:"لا توجد عناصر هنا بعد", disabled:"معطل", editNames:"تعديل الأسماء", save:"حفظ", createNew:"إنشاء جديد", name:"الاسم بالعربية", chooseExisting:"اختر من الموجود", noExisting:"لا توجد عناصر أخرى متاحة للربط." },
+  en: { loading:"Loading the organization structure…", loadError:"Could not load the organization structure.", retry:"Try again", intro:"Start with a cost center, then add its locations and each location's departments on this screen. You can link an existing location or department without duplicating it.", selectedPath:"Selected path", addFirst:"Add the first cost center", centers:"Cost centers", centerHelp:"Select a center to show its locations", addCenter:"Add cost center", locations:"Locations", addLocation:"Add location", linkLocation:"Link an existing location", departments:"Departments", addDepartment:"Add department", linkDepartment:"Link an existing department", chooseLocation:"Choose a location first", locationsOf:"Locations for", departmentsOf:"Departments for", deleted:"Item deleted", unlinked:"Link removed; the item remains available", actionError:"Could not complete the action. Try again.", delete:"Delete", unlink:"Unlink", cancel:"Cancel", confirmDelete:"Confirm deletion", confirmUnlink:"Confirm unlinking", none:"No items here yet", disabled:"Inactive", editNames:"Edit names", save:"Save", createNew:"Create new", name:"Name in Arabic", chooseExisting:"Choose an existing item", noExisting:"No other items are available to link." },
+  ur: { loading:"تنظیمی ڈھانچہ لوڈ ہو رہا ہے…", loadError:"تنظیمی ڈھانچہ لوڈ نہیں ہو سکا۔", retry:"دوبارہ کوشش کریں", intro:"پہلے لاگت کا مرکز منتخب کریں، پھر اسی اسکرین پر اس کے مقامات اور محکمے شامل کریں۔ موجودہ مقام یا محکمہ دوبارہ بنائے بغیر منسلک کیا جا سکتا ہے۔", selectedPath:"منتخب کردہ راستہ", addFirst:"پہلا لاگت مرکز شامل کریں", centers:"لاگت کے مراکز", centerHelp:"مقامات دیکھنے کے لیے مرکز منتخب کریں", addCenter:"لاگت مرکز شامل کریں", locations:"مقامات", addLocation:"مقام شامل کریں", linkLocation:"موجودہ مقام منسلک کریں", departments:"محکمے", addDepartment:"محکمہ شامل کریں", linkDepartment:"موجودہ محکمہ منسلک کریں", chooseLocation:"پہلے مقام منتخب کریں", locationsOf:"مقامات برائے", departmentsOf:"محکمے برائے", deleted:"آئٹم حذف کر دیا گیا", unlinked:"رابطہ ہٹا دیا گیا؛ آئٹم محفوظ ہے", actionError:"عمل مکمل نہ ہو سکا۔ دوبارہ کوشش کریں۔", delete:"حذف کریں", unlink:"رابطہ ختم کریں", cancel:"منسوخ کریں", confirmDelete:"حذف کرنے کی تصدیق", confirmUnlink:"رابطہ ختم کرنے کی تصدیق", none:"ابھی یہاں کوئی آئٹم نہیں", disabled:"غیر فعال", editNames:"ناموں میں ترمیم", save:"محفوظ کریں", createNew:"نیا بنائیں", name:"عربی میں نام", chooseExisting:"موجودہ آئٹم منتخب کریں", noExisting:"منسلک کرنے کے لیے مزید کوئی آئٹم دستیاب نہیں۔" },
+} as const;
 const generatedCode = (prefix: string) => {
   // LAN deployments may use HTTP, where randomUUID is unavailable.
   const value =
@@ -49,6 +58,8 @@ const generatedCode = (prefix: string) => {
 
 /** Keep existing many-to-many data while editing each relationship in its parent context. */
 export function OrgSetup() {
+  const { language } = useLanguage();
+  const text = setupText[language];
   const utils = trpc.useUtils();
   const branches = trpc.orgStructure.listBranches.useQuery({});
   const locations = trpc.orgStructure.listLocations.useQuery({});
@@ -104,6 +115,9 @@ export function OrgSetup() {
     onSuccess: refresh,
     onError: reportError,
   });
+  const updateBranch = trpc.orgStructure.updateBranch.useMutation({ onSuccess: refresh, onError: reportError });
+  const updateLocation = trpc.orgStructure.updateLocation.useMutation({ onSuccess: refresh, onError: reportError });
+  const updateDepartment = trpc.orgStructure.updateDepartment.useMutation({ onSuccess: refresh, onError: reportError });
   const createLocation = trpc.orgStructure.createLocationInBranch.useMutation({
     onSuccess: refresh,
     onError: reportError,
@@ -173,15 +187,15 @@ export function OrgSetup() {
       }
       toast.success(
         actionTarget.action === "delete"
-          ? "تم حذف العنصر"
-          : "تم فك الارتباط مع إبقاء العنصر محفوظًا",
+          ? text.deleted
+          : text.unlinked,
       );
       setActionTarget(null);
     } catch (error) {
       setActionError(
         error instanceof Error
           ? error.message
-          : "تعذر تنفيذ العملية. حاول مجددًا.",
+          : text.actionError,
       );
     }
   };
@@ -204,7 +218,7 @@ export function OrgSetup() {
     return (
       <p className="flex items-center gap-2 py-8">
         <Loader2 className="h-4 w-4 animate-spin" />
-        تحميل الهيكل التشغيلي…
+        {text.loading}
       </p>
     );
   if (failed)
@@ -213,9 +227,9 @@ export function OrgSetup() {
         role="alert"
         className="rounded-lg border border-red-300 p-4 text-red-700"
       >
-        تعذر تحميل الهيكل التشغيلي.{" "}
+        {text.loadError}{" "}
         <Button variant="link" onClick={refresh}>
-          إعادة المحاولة
+          {text.retry}
         </Button>
       </div>
     );
@@ -223,29 +237,29 @@ export function OrgSetup() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        ابدأ بمركز التكلفة، ثم أضف مواقعه وأقسام كل موقع من نفس الشاشة. يمكنك
-        اختيار موقع أو قسم موجود وإضافته هنا دون تكراره.
+        {text.intro}
       </p>
       <div
         className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 p-3 text-sm"
-        aria-label="المسار المختار"
+        aria-label={text.selectedPath}
       >
         <Building2 className="h-4 w-4" />
         <span>
-          {normalizeDigits(selectedBranch?.nameAr ?? "أضف مركز التكلفة الأول")}
+          {normalizeDigits(selectedBranch ? localizedName(selectedBranch, language) : text.addFirst)}
         </span>
         {selectedLocation && (
           <>
             <span aria-hidden="true">←</span>
-            <span>{normalizeDigits(selectedLocation.nameAr)}</span>
+            <span>{normalizeDigits(localizedName(selectedLocation, language))}</span>
           </>
         )}
       </div>
       <div className="grid gap-4 xl:grid-cols-3">
         <ContextCard
-          title="مراكز التكلفة"
-          description="اختر المركز لإظهار مواقعه"
+          title={text.centers}
+          description={text.centerHelp}
           items={branches.data ?? []}
+          onEdit={async (id, values) => { await updateBranch.mutateAsync({branchId: id, nameAr: values.nameAr, nameEn: values.nameEn}); }}
           selectedId={selectedBranch?.id}
           onSelect={(id) => {
             setBranchId(id);
@@ -256,10 +270,10 @@ export function OrgSetup() {
               action: "delete",
               kind: "branch",
               id: item.id,
-              name: item.nameAr,
+              name: localizedName(item, language),
             })
           }
-          createLabel="إضافة مركز تكلفة"
+          createLabel={text.addCenter}
           pending={createBranch.isPending}
           onCreate={async (nameAr) => {
             const item = await createBranch.mutateAsync({
@@ -274,13 +288,14 @@ export function OrgSetup() {
         />
         <ContextCard
           key={`locations-${selectedBranch?.id}`}
-          title="المواقع"
+          title={text.locations}
           description={
             selectedBranch
-              ? `مواقع ${selectedBranch.nameAr}`
-              : "أضف مركز تكلفة أولًا"
+              ? `${text.locationsOf} ${localizedName(selectedBranch, language)}`
+              : text.addFirst
           }
           items={childLocations}
+          onEdit={async (id, values) => { await updateLocation.mutateAsync({locationId: id, nameAr: values.nameAr, nameEn: values.nameEn}); }}
           selectedId={selectedLocation?.id}
           onSelect={setLocationId}
           onDelete={(item) =>
@@ -288,16 +303,16 @@ export function OrgSetup() {
               action: "delete",
               kind: "location",
               id: item.id,
-              name: item.nameAr,
+              name: localizedName(item, language),
               parentId: selectedBranch?.id,
-              parentName: selectedBranch?.nameAr,
+              parentName: selectedBranch ? localizedName(selectedBranch, language) : undefined,
             })
           }
-          createLabel="إضافة موقع"
+          createLabel={text.addLocation}
           disabled={!selectedBranch?.isActive}
           pending={createLocation.isPending || linkLocation.isPending}
           existingItems={availableLocations}
-          existingLabel="ربط موقع موجود"
+          existingLabel={text.linkLocation}
           onCreate={async (nameAr) => {
             if (!selectedBranch) return;
             const item = await createLocation.mutateAsync({
@@ -326,35 +341,37 @@ export function OrgSetup() {
                 action: "unlink",
                 kind: "location",
                 id: link.id,
-                name: item.nameAr,
-                parentName: selectedBranch?.nameAr,
+                name: localizedName(item, language),
+                parentName: selectedBranch ? localizedName(selectedBranch, language) : undefined,
               });
           }}
         />
         <ContextCard
           key={`departments-${selectedLocation?.id}`}
-          title="الأقسام"
+          title={text.departments}
           description={
             selectedLocation
-              ? `أقسام ${selectedLocation.nameAr}`
-              : "اختر موقعًا أولًا"
+              ? `${text.departmentsOf} ${localizedName(selectedLocation, language)}`
+              : text.chooseLocation
           }
           items={childDepartments}
+          supportsUrdu
+          onEdit={async (id, values) => { await updateDepartment.mutateAsync({departmentId: id, ...values}); }}
           onDelete={(item) =>
             openAction({
               action: "delete",
               kind: "department",
               id: item.id,
-              name: item.nameAr,
+              name: localizedName(item, language),
               parentId: selectedLocation?.id,
-              parentName: selectedLocation?.nameAr,
+              parentName: selectedLocation ? localizedName(selectedLocation, language) : undefined,
             })
           }
-          createLabel="إضافة قسم"
+          createLabel={text.addDepartment}
           disabled={!selectedLocation?.isActive || !selectedBranch?.isActive}
           pending={createDepartment.isPending || linkDepartment.isPending}
           existingItems={availableDepartments}
-          existingLabel="ربط قسم موجود"
+          existingLabel={text.linkDepartment}
           onCreate={async (nameAr) => {
             if (!selectedLocation) return;
             await createDepartment.mutateAsync({
@@ -381,8 +398,8 @@ export function OrgSetup() {
                 action: "unlink",
                 kind: "department",
                 id: link.id,
-                name: item.nameAr,
-                parentName: selectedLocation?.nameAr,
+                name: localizedName(item, language),
+                parentName: selectedLocation ? localizedName(selectedLocation, language) : undefined,
               });
           }}
         />
@@ -393,17 +410,17 @@ export function OrgSetup() {
           if (!open && !actionPending) setActionTarget(null);
         }}
       >
-        <AlertDialogContent dir="rtl">
+        <AlertDialogContent dir={language === "en" ? "ltr" : "rtl"}>
           <AlertDialogHeader className="text-start sm:text-start">
             <AlertDialogTitle>
-              {actionTarget?.action === "delete" ? "حذف" : "فك ارتباط"} «
+              {actionTarget?.action === "delete" ? text.delete : text.unlink} «
               {normalizeDigits(actionTarget?.name ?? "")}»؟
             </AlertDialogTitle>
             <AlertDialogDescription>
               {normalizeDigits(
                 actionTarget?.action === "unlink"
-                  ? `سيُزال ارتباط «${actionTarget.name}» بـ«${actionTarget.parentName}» فقط. يبقى العنصر وارتباطاته الأخرى محفوظة ويمكن ربطه مجددًا.`
-                  : `سيُحذف «${actionTarget?.name}» نهائيًا${actionTarget?.parentName ? ` مع ارتباطه الحالي بـ«${actionTarget.parentName}»` : ""}. لا يمكن التراجع عن الحذف. يمنع النظام حذف عنصر له عمال أو سجلات أو ارتباطات أخرى، ولا يحذفها تلقائيًا.`,
+                  ? language === "en" ? `Only the link between “${actionTarget.name}” and “${actionTarget.parentName}” will be removed. The item and its other links remain and can be linked again.` : language === "ur" ? `صرف «${actionTarget.name}» اور «${actionTarget.parentName}» کا رابطہ ہٹایا جائے گا۔ آئٹم اور دوسرے روابط محفوظ رہیں گے اور اسے دوبارہ منسلک کیا جا سکتا ہے۔` : `سيُزال ارتباط «${actionTarget.name}» بـ«${actionTarget.parentName}» فقط. يبقى العنصر وارتباطاته الأخرى محفوظة ويمكن ربطه مجددًا.`
+                  : language === "en" ? `“${actionTarget?.name}” will be permanently deleted${actionTarget?.parentName ? ` along with its current link to “${actionTarget.parentName}”` : ""}. This cannot be undone. The system prevents deletion if the item has workers, records or other links; it does not delete them automatically.` : language === "ur" ? `«${actionTarget?.name}» مستقل طور پر حذف ہو جائے گا${actionTarget?.parentName ? ` اور «${actionTarget.parentName}» سے اس کا موجودہ رابطہ بھی ہٹ جائے گا` : ""}۔ اسے واپس نہیں کیا جا سکتا۔ کارکنوں، ریکارڈ یا دیگر روابط والا آئٹم نظام حذف نہیں کرتا۔` : `سيُحذف «${actionTarget?.name}» نهائيًا${actionTarget?.parentName ? ` مع ارتباطه الحالي بـ«${actionTarget.parentName}»` : ""}. لا يمكن التراجع عن الحذف. يمنع النظام حذف عنصر له عمال أو سجلات أو ارتباطات أخرى، ولا يحذفها تلقائيًا.`,
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -417,7 +434,7 @@ export function OrgSetup() {
           )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={actionPending}>
-              إلغاء
+              {text.cancel}
             </AlertDialogCancel>
             <Button
               variant={
@@ -428,8 +445,8 @@ export function OrgSetup() {
             >
               {actionPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {actionTarget?.action === "delete"
-                ? "تأكيد الحذف"
-                : "تأكيد فك الارتباط"}
+                ? text.confirmDelete
+                : text.confirmUnlink}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -453,6 +470,8 @@ function ContextCard({
   onLink,
   onUnlink,
   onDelete,
+  onEdit,
+  supportsUrdu = false,
 }: {
   title: string;
   description: string;
@@ -468,13 +487,20 @@ function ContextCard({
   onLink?: (id: number) => Promise<void>;
   onUnlink?: (item: CatalogItem) => void;
   onDelete: (item: CatalogItem) => void;
+  onEdit?: (id: number, values: {nameAr: string; nameEn: string; nameUr?: string}) => Promise<void>;
+  supportsUrdu?: boolean;
 }) {
+  const { language } = useLanguage();
+  const text = setupText[language];
   const { user } = useAuth();
   const canManage = permits(user?.permissions ?? [], "org_structure:manage");
   const [adding, setAdding] = useState(false);
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [name, setName] = useState("");
   const [existingId, setExistingId] = useState("");
+  const [editing, setEditing] = useState<CatalogItem | null>(null);
+  const [editValues, setEditValues] = useState({ nameAr: "", nameEn: "", nameUr: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -485,7 +511,7 @@ function ContextCard({
         <div className="max-h-80 space-y-2 overflow-y-auto">
           {!items.length && (
             <p className="rounded border border-dashed p-4 text-sm text-muted-foreground">
-              لا توجد عناصر هنا بعد
+              {text.none}
             </p>
           )}
           {items.map((item) => (
@@ -500,38 +526,52 @@ function ContextCard({
                   aria-pressed={selectedId === item.id}
                   onClick={() => onSelect(item.id)}
                 >
-                  {normalizeDigits(item.nameAr)}
+                  {normalizeDigits(localizedName(item, language))}
                 </button>
               ) : (
                 <span className="min-w-0 basis-full flex-1 break-words px-2 py-2 text-sm">
-                  {normalizeDigits(item.nameAr)}
+                  {normalizeDigits(localizedName(item, language))}
                 </span>
               )}
-              {!item.isActive && <Badge variant="outline">معطل</Badge>}
+              {!item.isActive && <Badge variant="outline">{text.disabled}</Badge>}
+              {canManage && onEdit && <Button size="sm" variant="ghost" onClick={() => { setEditing(item); setEditValues({nameAr:item.nameAr, nameEn:item.nameEn ?? "", nameUr:item.nameUr ?? ""}); }}>
+                {text.editNames}
+              </Button>}
               {canManage && onUnlink && (
                 <Button
                   size="sm"
                   variant="ghost"
-                  aria-label={normalizeDigits(`فك ارتباط ${item.nameAr}`)}
+                  aria-label={normalizeDigits(`${text.unlink} ${localizedName(item, language)}`)}
                   onClick={() => onUnlink(item)}
                 >
                   <Unlink className="h-4 w-4" />
-                  فك الارتباط
+                  {text.unlink}
                 </Button>
               )}
               {canManage && <Button
                 size="sm"
                 variant="ghost"
                 className="text-destructive hover:text-destructive"
-                aria-label={normalizeDigits(`حذف ${item.nameAr}`)}
+                aria-label={normalizeDigits(`${text.delete} ${localizedName(item, language)}`)}
                 onClick={() => onDelete(item)}
               >
                 <Trash2 className="h-4 w-4" />
-                حذف
+                {text.delete}
               </Button>}
             </div>
           ))}
         </div>
+        {editing && onEdit && <form className="space-y-2 rounded-md border p-3" onSubmit={async event => {
+          event.preventDefault(); setSavingEdit(true);
+          try { await onEdit(editing.id, {nameAr: editValues.nameAr.trim(), nameEn: editValues.nameEn.trim(), ...(supportsUrdu ? {nameUr: editValues.nameUr.trim()} : {})}); setEditing(null); }
+          catch { /* The mutation reports errors without discarding edits. */ }
+          finally { setSavingEdit(false); }
+        }}>
+          <Label>العربية<Input required value={editValues.nameAr} onChange={event => setEditValues(v => ({...v,nameAr:event.target.value}))} /></Label>
+          <Label>English<Input dir="ltr" value={editValues.nameEn} onChange={event => setEditValues(v => ({...v,nameEn:event.target.value}))} /></Label>
+          {supportsUrdu && <Label>اردو<Input dir="rtl" value={editValues.nameUr} onChange={event => setEditValues(v => ({...v,nameUr:event.target.value}))} /></Label>}
+          <div className="flex gap-2"><Button type="submit" size="sm" disabled={savingEdit || !editValues.nameAr.trim()}>{text.save}</Button><Button type="button" size="sm" variant="ghost" onClick={() => setEditing(null)}>{text.cancel}</Button></div>
+        </form>}
         {!canManage ? null : !adding ? (
           <Button
             variant="outline"
@@ -567,7 +607,7 @@ function ContextCard({
                   size="sm"
                   onClick={() => setMode("new")}
                 >
-                  إنشاء جديد
+                  {text.createNew}
                 </Button>
                 <Button
                   type="button"
@@ -581,13 +621,11 @@ function ContextCard({
             )}
             {mode === "new" ? (
               <Label className="block space-y-2">
-                <span>الاسم</span>
+                <span>{text.name}</span>
                 <Input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder={normalizeDigits(
-                    createLabel.replace("إضافة", "اسم"),
-                  )}
+                  placeholder={text.name}
                   maxLength={255}
                   required
                   autoFocus
@@ -598,19 +636,19 @@ function ContextCard({
                 <span>{normalizeDigits(existingLabel ?? "")}</span>
                 <Select value={existingId} onValueChange={setExistingId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="اختر من الموجود" />
+                    <SelectValue placeholder={text.chooseExisting} />
                   </SelectTrigger>
                   <SelectContent>
                     {existingItems.map((item) => (
                       <SelectItem key={item.id} value={String(item.id)}>
-                        {normalizeDigits(item.nameAr)}
+                        {normalizeDigits(localizedName(item, language))}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {!existingItems.length && (
                   <span className="block text-xs text-muted-foreground">
-                    لا توجد عناصر أخرى متاحة للربط.
+                    {text.noExisting}
                   </span>
                 )}
               </Label>
@@ -624,7 +662,7 @@ function ContextCard({
                   (mode === "new" ? !name.trim() : !existingId)
                 }
               >
-                {pending && <Loader2 className="h-4 w-4 animate-spin" />}حفظ
+                {pending && <Loader2 className="h-4 w-4 animate-spin" />}{text.save}
               </Button>
               <Button
                 type="button"
@@ -633,7 +671,7 @@ function ContextCard({
                 disabled={pending}
                 onClick={() => setAdding(false)}
               >
-                إلغاء
+                {text.cancel}
               </Button>
             </div>
           </form>

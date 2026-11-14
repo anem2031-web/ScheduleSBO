@@ -34,7 +34,8 @@ export const fingerprintIdSchema = z
   .optional()
   .transform((value) => value || undefined);
 
-export const createWorkerSchema = z.object({
+const workerFieldsSchema = z.object({
+  sourceLanguage: z.enum(["ar", "en", "ur"]).optional(),
   employeeId: employeeIdSchema,
   fingerprintId: fingerprintIdSchema,
   phoneNumber: workerPhoneNumberSchema,
@@ -51,7 +52,17 @@ export const createWorkerSchema = z.object({
   status: workerStatusSchema.default("active"),
 });
 
-export const updateWorkerSchema = createWorkerSchema
+export const createWorkerSchema = workerFieldsSchema.superRefine((value, ctx) => {
+  if (!value.nameAr && !value.nameEn && !value.nameUr) {
+    ctx.addIssue({ code: "custom", path: ["nameAr"], message: "أدخل اسم العامل بلغة واحدة على الأقل" });
+  }
+  const sourceField = value.sourceLanguage === "en" ? "nameEn" : value.sourceLanguage === "ur" ? "nameUr" : "nameAr";
+  if (value.sourceLanguage && !value[sourceField]) {
+    ctx.addIssue({ code: "custom", path: [sourceField], message: "أدخل الاسم باللغة الأصلية المحددة" });
+  }
+});
+
+export const updateWorkerSchema = workerFieldsSchema
   .omit({ employeeId: true })
   .partial()
   .extend({ id: z.number().int().positive() });

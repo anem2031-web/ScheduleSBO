@@ -6,6 +6,7 @@ import { createAuditLog } from "../../shared/audit";
 import * as rbac from "../../shared/rbac";
 import * as db from "./workers.repository";
 import { revisedDailyLimit } from "./work-budget";
+import { getNameTranslationAttempt, getNameTranslationConfiguration, scheduleWorkerNameTranslation } from "../translations/worker-name-translation";
 import { assertWorkerInScope, assertCostCenterScope, getScopedWorkerIds } from "../../shared/worker-scope";
 import {
   createWorkerSchema,
@@ -127,6 +128,16 @@ async function validateReferences(input: {
 }
 
 export const workersRouter = router({
+  nameTranslationStatus: protectedProcedure
+    .input(z.object({ workerId: z.number().int().positive().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      requireWorkerRead(ctx.user);
+      if (input?.workerId) await assertWorkerInScope(ctx.user, input.workerId);
+      return {
+        configuration: getNameTranslationConfiguration(),
+        attempt: input?.workerId ? getNameTranslationAttempt(input.workerId) : "unknown" as const,
+      };
+    }),
   updateDutySettings: protectedProcedure
     .input(workerDutySettingsSchema)
     .mutation(async ({ ctx, input }) => {
@@ -330,8 +341,9 @@ export const workersRouter = router({
       }
 
       try {
+        const { sourceLanguage, ...workerInput } = input;
         const worker = await db.insertWorker({
-          ...input,
+          ...workerInput,
           employeeId,
           hireDate: input.hireDate ? parseHireDate(input.hireDate) : null,
           isActive:
@@ -355,6 +367,8 @@ export const workersRouter = router({
           worker as any,
         );
 
+        scheduleWorkerNameTranslation(worker.id, worker, sourceLanguage);
+
         return worker;
       } catch (error) {
         return handleDatabaseError(error);
@@ -376,7 +390,7 @@ export const workersRouter = router({
         });
       }
 
-      const { id, hireDate, ...rawChanges } = input;
+      const { id, hireDate, sourceLanguage, ...rawChanges } = input;
 
       /*
        * لا نضيف hireDate إلى التحديث إلا إذا
@@ -390,6 +404,13 @@ export const workersRouter = router({
             }
           : {}),
       };
+
+      if (sourceLanguage) {
+        const sourceField = sourceLanguage === "en" ? "nameEn" : sourceLanguage === "ur" ? "nameUr" : "nameAr";
+        if (!(changes[sourceField] ?? current[sourceField])?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "أدخل الاسم باللغة الأصلية المحددة" });
+        }
+      }
 
       const departmentId = changes.departmentId ?? current.departmentId;
 
@@ -441,6 +462,10 @@ export const workersRouter = router({
           current as any,
           updated as any,
         );
+
+        if (updated && (changes.nameAr !== undefined || changes.nameEn !== undefined || changes.nameUr !== undefined)) {
+          scheduleWorkerNameTranslation(id, updated, sourceLanguage);
+        }
 
         return updated;
       } catch (error) {

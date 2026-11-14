@@ -34,7 +34,10 @@ import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { normalizeDigits } from "@shared/display-format";
 import { AccountAccess, MyAccountAccess } from "./AccountAccess";
-import { MIN_PASSWORD_LENGTH, PASSWORD_LENGTH_MESSAGE, permits } from "@shared/access-control";
+import { MIN_PASSWORD_LENGTH, permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
+import { localizedName, localizedJobTitle } from "@/lib/localized-data";
+import { setupManagementText, setupRoleLabels } from "./setup-management-text";
 
 export function SimpleCatalogCard({
   title,
@@ -55,6 +58,8 @@ export function SimpleCatalogCard({
   idField: string;
   invalidateKey: string;
 }) {
+  const { language } = useLanguage();
+  const text = setupManagementText[language];
   const utils = trpc.useUtils();
   const { user } = useAuth();
   const canManage = permits(user?.permissions ?? [], "org_structure:manage");
@@ -99,12 +104,12 @@ export function SimpleCatalogCard({
       <CardContent className="space-y-4">
         {canManage && <div className="space-y-2">
           <Input
-            placeholder="الرمز (مثال: TOLAN)"
+            placeholder={text.code}
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />
           <Input
-            placeholder="الاسم العربي"
+            placeholder={text.nameAr}
             value={nameAr}
             onChange={(e) => setNameAr(e.target.value)}
           />
@@ -122,7 +127,7 @@ export function SimpleCatalogCard({
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            إضافة
+            {text.add}
           </Button>
         </div>}
 
@@ -130,7 +135,7 @@ export function SimpleCatalogCard({
           <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
         ) : !data?.length ? (
           <p className="rounded border border-dashed py-4 text-center text-xs text-gray-500">
-            لا توجد عناصر بعد
+            {text.empty}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -141,7 +146,7 @@ export function SimpleCatalogCard({
                   className="flex items-center justify-between rounded border border-red-300 bg-red-50 px-3 py-1.5 text-sm"
                 >
                   <span className="text-xs text-red-700">
-                    حذف "{normalizeDigits(item.nameAr ?? "")}" نهائيًا؟
+                    {language === "en" ? `Permanently delete “${normalizeDigits(localizedName(item, language))}”?` : language === "ur" ? `«${normalizeDigits(localizedName(item, language))}» مستقل طور پر حذف کریں؟` : `حذف «${normalizeDigits(localizedName(item, language))}» نهائيًا؟`}
                   </span>
                   <div className="flex items-center gap-1">
                     <Button
@@ -154,7 +159,7 @@ export function SimpleCatalogCard({
                       {remove.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        "تأكيد الحذف"
+                        text.confirmDelete
                       )}
                     </Button>
                     <Button
@@ -163,7 +168,7 @@ export function SimpleCatalogCard({
                       className="h-6 px-2 text-xs"
                       onClick={() => setConfirmId(null)}
                     >
-                      إلغاء
+                      {text.cancel}
                     </Button>
                   </div>
                 </div>
@@ -174,7 +179,7 @@ export function SimpleCatalogCard({
                 >
                   <div>
                     <span className="font-medium">
-                      {normalizeDigits(item.nameAr ?? "")}
+                      {normalizeDigits(localizedName(item, language))}
                     </span>
                     <span className="mx-1.5 text-gray-400">·</span>
                     <span className="font-mono text-xs text-gray-500">
@@ -183,7 +188,7 @@ export function SimpleCatalogCard({
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      aria-label={`${item.isActive ? "تعطيل" : "تفعيل"} ${normalizeDigits(item.nameAr ?? "")}`}
+                      aria-label={`${item.isActive ? text.deactivate : text.activate} ${normalizeDigits(localizedName(item, language))}`}
                       className="text-xs"
                       disabled={!canManage}
                       onClick={() =>
@@ -194,14 +199,14 @@ export function SimpleCatalogCard({
                       }
                     >
                       <Badge variant={item.isActive ? "default" : "outline"}>
-                        {item.isActive ? "نشط" : "معطل"}
+                        {item.isActive ? text.active : text.inactive}
                       </Badge>
                     </button>
                     {canManage && <Button
                       size="sm"
                       variant="ghost"
                       className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                      aria-label={`حذف ${normalizeDigits(item.nameAr ?? "")}`}
+                      aria-label={`${text.delete} ${normalizeDigits(localizedName(item, language))}`}
                       onClick={() => setConfirmId(item.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -218,6 +223,8 @@ export function SimpleCatalogCard({
 }
 
 export function JobTitlesCard() {
+  const { language } = useLanguage();
+  const text = setupManagementText[language];
   const utils = trpc.useUtils();
   const { user } = useAuth();
   const canManage = permits(user?.permissions ?? [], "org_structure:manage");
@@ -255,33 +262,35 @@ export function JobTitlesCard() {
     },
   });
 
-  const departmentName = (id: number | null) =>
-    departmentsData?.find((d: any) => d.id === id)?.nameAr ?? "بلا قسم";
+  const departmentName = (id: number | null) => {
+    const item = departmentsData?.find((d: any) => d.id === id);
+    return item ? localizedName(item, language) : text.noDepartment;
+  };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>المسميات الوظيفية</CardTitle>
+        <CardTitle>{text.jobTitles}</CardTitle>
         <CardDescription>
-          كاشير، طباخ، مشرف وردية... يمكن ربط كل مسمى بقسم اختياريًا
+          {text.jobHelp}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {canManage && <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
           <Input
-            aria-label="اسم المسمى الوظيفي"
-            placeholder="اسم المسمى الوظيفي"
+            aria-label={text.jobName}
+            placeholder={text.jobName}
             value={titleAr}
             onChange={(e) => setTitleAr(e.target.value)}
           />
           <Select value={departmentId} onValueChange={setDepartmentId}>
             <SelectTrigger>
-              <SelectValue placeholder="القسم (اختياري)" />
+              <SelectValue placeholder={text.departmentOptional} />
             </SelectTrigger>
             <SelectContent>
               {departmentsData?.map((d: any) => (
                 <SelectItem key={d.id} value={String(d.id)}>
-                  {normalizeDigits(d.nameAr ?? "")}
+                  {normalizeDigits(localizedName(d, language))}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -303,7 +312,7 @@ export function JobTitlesCard() {
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            إضافة
+            {text.add}
           </Button>
         </div>}
         {error && (
@@ -314,7 +323,7 @@ export function JobTitlesCard() {
           <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
         ) : !data?.length ? (
           <p className="rounded border border-dashed py-4 text-center text-xs text-gray-500">
-            لا توجد مسميات وظيفية بعد
+            {text.noJobs}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -325,7 +334,7 @@ export function JobTitlesCard() {
                   className="flex items-center justify-between rounded border border-red-300 bg-red-50 px-3 py-1.5 text-sm"
                 >
                   <span className="text-xs text-red-700">
-                    حذف "{normalizeDigits(item.titleAr ?? "")}" نهائيًا؟
+                    {language === "en" ? `Permanently delete job title “${normalizeDigits(localizedJobTitle(item, language))}”?` : language === "ur" ? `عہدہ «${normalizeDigits(localizedJobTitle(item, language))}» مستقل طور پر حذف کریں؟` : `حذف المسمى «${normalizeDigits(localizedJobTitle(item, language))}» نهائيًا؟`}
                   </span>
                   <div className="flex items-center gap-1">
                     <Button
@@ -338,7 +347,7 @@ export function JobTitlesCard() {
                       {remove.isPending ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        "تأكيد الحذف"
+                        text.confirmDelete
                       )}
                     </Button>
                     <Button
@@ -347,7 +356,7 @@ export function JobTitlesCard() {
                       className="h-6 px-2 text-xs"
                       onClick={() => setConfirmId(null)}
                     >
-                      إلغاء
+                      {text.cancel}
                     </Button>
                   </div>
                 </div>
@@ -358,7 +367,7 @@ export function JobTitlesCard() {
                 >
                   <div>
                     <span className="font-medium">
-                      {normalizeDigits(item.titleAr ?? "")}
+                      {normalizeDigits(localizedJobTitle(item, language))}
                     </span>
                     <span className="mx-1.5 text-gray-400">·</span>
                     <span className="font-mono text-xs text-gray-500">
@@ -371,7 +380,7 @@ export function JobTitlesCard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
-                      aria-label={`${item.isActive ? "تعطيل" : "تفعيل"} ${normalizeDigits(item.titleAr ?? "")}`}
+                      aria-label={`${item.isActive ? text.deactivate : text.activate} ${normalizeDigits(localizedJobTitle(item, language))}`}
                       className="text-xs"
                       disabled={!canManage}
                       onClick={() =>
@@ -382,14 +391,14 @@ export function JobTitlesCard() {
                       }
                     >
                       <Badge variant={item.isActive ? "default" : "outline"}>
-                        {item.isActive ? "نشط" : "معطل"}
+                        {item.isActive ? text.active : text.inactive}
                       </Badge>
                     </button>
                     {canManage && <Button
                       size="sm"
                       variant="ghost"
                       className="h-6 w-6 p-0 text-red-500 hover:text-red-700"
-                      aria-label={`حذف المسمى ${normalizeDigits(item.titleAr ?? "")}`}
+                      aria-label={`${text.deleteJob} ${normalizeDigits(localizedJobTitle(item, language))}`}
                       onClick={() => setConfirmId(item.id)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -405,21 +414,12 @@ export function JobTitlesCard() {
   );
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  admin: "مسؤول النظام",
-  hr_admin: "مسؤول موارد بشرية",
-  supervisor: "مشرف",
-  guard: "حارس أمن",
-  worker: "عامل",
-  financial_reviewer: "مراجع مالي",
-  finance: "مالية",
-  accounting_head: "رئيس حسابات",
-  modifier: "معدّل بيانات",
-};
-
-const ROLE_OPTIONS = Object.keys(ROLE_LABELS);
+const ROLE_OPTIONS = Object.keys(setupRoleLabels.ar) as (keyof typeof setupRoleLabels.ar)[];
 
 export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
+  const { language } = useLanguage();
+  const text = setupManagementText[language];
+  const roleLabels = setupRoleLabels[language];
   const utils = trpc.useUtils();
   const { user: currentUser } = useAuth();
   const {
@@ -464,7 +464,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
       setRole("supervisor");
       setError("");
       invalidate();
-      toast.success("تم إنشاء المستخدم بنجاح");
+      toast.success(text.created);
     },
     onError: (e: any) => setError(e.message),
   });
@@ -478,7 +478,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
     onSuccess: (_result, input) => {
       invalidate();
       toast.success(
-        input.isActive ? "تمت استعادة الحساب وتفعيله" : "تم تعطيل الحساب",
+        input.isActive ? text.restored : text.disabled,
       );
     },
     onError: (e: any) => toast.error(normalizeDigits(e.message)),
@@ -495,10 +495,10 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
 
   const saveUser = () => {
     if (name.trim().length < 2)
-      return setError("أدخل اسمًا واضحًا من خانتين على الأقل.");
+      return setError(text.invalidName);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return setError("أدخل بريدًا إلكترونيًا صحيحًا لحساب الدخول.");
-    if (password.length < MIN_PASSWORD_LENGTH) return setError(PASSWORD_LENGTH_MESSAGE);
+      return setError(text.invalidEmail);
+    if (password.length < MIN_PASSWORD_LENGTH) return setError(text.invalidPassword);
     setError("");
     create.mutate({
       email: email.trim(),
@@ -514,30 +514,30 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            {allAccounts ? "إنشاء حساب مستخدم" : "إضافة مشرف"}
+            {allAccounts ? text.createAccount : text.addSupervisor}
           </CardTitle>
           <CardDescription>
             {canManage
-              ? "أنشئ الحساب هنا، ثم اربطه بالعمال من بطاقة العامل. يمكن ربط العامل بأكثر من مشرف."
-              : "إنشاء الحسابات وتغيير صلاحياتها متاح لمسؤول النظام. يمكنك الاطلاع على المشرفين الموجودين."}
+              ? text.canManageHelp
+              : text.viewHelp}
           </CardDescription>
         </CardHeader>
         {canManage && (
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5"><Label htmlFor={`${formId}-username`}>اسم الدخول (اختياري)</Label><Input id={`${formId}-username`} dir="ltr" autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} placeholder="HR01" /></div>
+              <div className="space-y-1.5"><Label htmlFor={`${formId}-username`}>{text.username}</Label><Input id={`${formId}-username`} dir="ltr" autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} placeholder="HR01" /></div>
               <div className="space-y-1.5">
-                <Label htmlFor={`${formId}-name`}>الاسم</Label>
+                <Label htmlFor={`${formId}-name`}>{text.name}</Label>
                 <Input
                   id={`${formId}-name`}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="اسم المشرف"
+                  placeholder={text.supervisorName}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${formId}-email`}>
-                  البريد الإلكتروني للدخول
+                  {text.email}
                 </Label>
                 <Input
                   id={`${formId}-email`}
@@ -549,7 +549,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={`${formId}-password`}>
-                  كلمة المرور (7 خانات على الأقل)
+                  {text.password}
                 </Label>
                 <Input
                   id={`${formId}-password`}
@@ -561,7 +561,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
               </div>
               {allAccounts && (
                 <div className="space-y-1.5">
-                  <Label>الدور</Label>
+                  <Label>{text.role}</Label>
                   <Select value={role} onValueChange={setRole}>
                     <SelectTrigger>
                       <SelectValue />
@@ -569,7 +569,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                     <SelectContent>
                       {ROLE_OPTIONS.map((r) => (
                         <SelectItem key={r} value={r}>
-                          {ROLE_LABELS[r]}
+                          {roleLabels[r]}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -590,7 +590,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              {allAccounts ? "إنشاء الحساب" : "حفظ المشرف"}
+              {allAccounts ? text.createAccountButton : text.saveSupervisor}
             </Button>
           </CardContent>
         )}
@@ -599,10 +599,10 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
       <Card>
         <CardHeader>
           <CardTitle>
-            {allAccounts ? "حسابات المستخدمين" : "المشرفون الحاليون"}
+            {allAccounts ? text.userAccounts : text.currentSupervisors}
           </CardTitle>
           <CardDescription>
-            {canManage ? "إدارة الحساب وحالته" : "قائمة الحسابات الحالية"}
+            {canManage ? text.manageAccounts : text.currentAccounts}
           </CardDescription>
           {!allAccounts && (
             <label className="flex items-center gap-2 text-sm">
@@ -611,16 +611,16 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                 checked={showArchived}
                 onChange={(event) => setShowArchived(event.target.checked)}
               />
-              عرض المشرفين المؤرشفين والمعطلين أيضًا
+              {text.showArchived}
             </label>
           )}
         </CardHeader>
         <CardContent>
           {loadError ? (
             <p role="alert" className="text-sm text-red-600">
-              تعذر تحميل الحسابات.{" "}
+              {text.loadError}{" "}
               <Button variant="link" onClick={() => refetch()}>
-                إعادة المحاولة
+                {text.retry}
               </Button>
             </p>
           ) : isLoading ? (
@@ -628,8 +628,8 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
           ) : !visibleUsers?.length ? (
             <p className="rounded border border-dashed py-4 text-center text-xs text-gray-500">
               {allAccounts
-                ? "لا توجد حسابات بعد"
-                : "لا يوجد مشرفون في هذه القائمة"}
+                ? text.noAccounts
+                : text.noSupervisors}
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -646,7 +646,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                       </span>
                       {isSelf && (
                         <span className="mx-1.5 text-xs text-gray-400">
-                          (أنت)
+                          ({text.you})
                         </span>
                       )}
                       <span className="mx-1.5 text-gray-400">·</span>
@@ -672,7 +672,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                           <SelectContent>
                             {ROLE_OPTIONS.map((r) => (
                               <SelectItem key={r} value={r}>
-                                {ROLE_LABELS[r]}
+                                {roleLabels[r]}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -682,8 +682,8 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                         className="text-xs"
                         aria-label={normalizeDigits(
                           u.isActive
-                            ? `تعطيل حساب ${u.name}`
-                            : `استعادة حساب ${u.name}`,
+                            ? `${text.deactivate} ${u.name}`
+                            : `${text.restore} ${u.name}`,
                         )}
                         disabled={
                           !canManage || isSelf || updateStatus.isPending
@@ -697,10 +697,10 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                       >
                         <Badge variant={u.isActive ? "default" : "outline"}>
                           {u.isActive
-                            ? "نشط"
+                            ? text.active
                             : canManage
-                              ? "مؤرشف / معطل — استعادة"
-                              : "مؤرشف / معطل"}
+                              ? text.archivedRestore
+                              : text.archived}
                         </Badge>
                       </button>
                       {canManage &&
@@ -711,14 +711,14 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
                             size="sm"
                             variant="outline"
                             className="gap-1 text-red-600 hover:text-red-700"
-                            aria-label={normalizeDigits(`حذف المشرف ${u.name}`)}
+                            aria-label={normalizeDigits(`${text.deleteSupervisor} ${u.name}`)}
                             disabled={archive.isPending}
                             onClick={() =>
                               setSupervisorToArchive({ id: u.id, name: u.name })
                             }
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                            حذف المشرف
+                            {text.deleteSupervisor}
                           </Button>
                         )}
                     </div>
@@ -737,21 +737,18 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
           if (!open && !archive.isPending) setSupervisorToArchive(null);
         }}
       >
-        <AlertDialogContent dir="rtl">
-          <AlertDialogHeader className="sm:text-right">
+        <AlertDialogContent dir={language === "en" ? "ltr" : "rtl"}>
+          <AlertDialogHeader className="text-start sm:text-start">
             <AlertDialogTitle>
-              حذف المشرف من القائمة وأرشفة حسابه
+              {text.archiveTitle}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              سيتم إخراج «{normalizeDigits(supervisorToArchive?.name ?? "")}» من
-              قائمة المشرفين النشطين وإيقاف دخوله إلى البرنامج. تُحفظ سجلاته
-              السابقة وارتباطاته بالعمال والجداول، ولا تُحذف نهائيًا. يمكنك عرض
-              الحسابات المؤرشفة واستعادة الحساب لاحقًا.
+              {language === "en" ? `“${normalizeDigits(supervisorToArchive?.name ?? "")}” will be removed from the active supervisors list and unable to sign in. Previous records and links to workers and schedules are preserved. You can view archived accounts and restore the account later.` : language === "ur" ? `«${normalizeDigits(supervisorToArchive?.name ?? "")}» کو فعال نگرانوں کی فہرست سے ہٹا دیا جائے گا اور وہ پروگرام میں سائن ان نہیں کر سکیں گے۔ سابقہ ریکارڈ اور کارکنوں اور جدولوں کے روابط محفوظ رہیں گے۔ آپ آرکائیو اکاؤنٹس دیکھ کر بعد میں اکاؤنٹ بحال کر سکتے ہیں۔` : `سيتم إخراج «${normalizeDigits(supervisorToArchive?.name ?? "")}» من قائمة المشرفين النشطين وإيقاف دخوله إلى البرنامج. تُحفظ سجلاته السابقة وارتباطاته بالعمال والجداول، ولا تُحذف نهائيًا. يمكنك عرض الحسابات المؤرشفة واستعادة الحساب لاحقًا.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={archive.isPending}>
-              إلغاء
+              {text.cancel}
             </AlertDialogCancel>
             <Button
               variant="destructive"
@@ -764,7 +761,7 @@ export function UsersTab({ allAccounts = false }: { allAccounts?: boolean }) {
               {archive.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "تأكيد الأرشفة وإيقاف الحساب"
+                text.archiveConfirm
               )}
             </Button>
           </AlertDialogFooter>

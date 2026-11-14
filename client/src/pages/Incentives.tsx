@@ -1,4 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { useLanguage } from "@/lib/i18n";
+import { demoPageText } from "@/lib/demo-pages-text";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +13,8 @@ import { Plus, Check, X, Clock } from "lucide-react";
  * إدارة الحوافز والدوام الإضافي ودورات الاعتماد
  */
 export default function Incentives() {
+  const { language } = useLanguage();
+  const tr = (value: string) => demoPageText(value, language);
   // بيانات تجريبية
   const incentives = [
     {
@@ -81,16 +85,17 @@ export default function Incentives() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6" dir={language === "en" ? "ltr" : "rtl"}>
+        <p role="note" className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">{tr("عرض توضيحي: البيانات والأزرار في هذه الصفحة تجريبية وليست بيانات تشغيلية.")}</p>
         {/* رأس الصفحة */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">الحوافز والمكافآت</h1>
-            <p className="text-gray-600 mt-1">إدارة الحوافز والدوام الإضافي والمكافآت</p>
+            <h1 className="text-3xl font-bold text-gray-900">{tr("الحوافز والمكافآت")}</h1>
+            <p className="text-gray-600 mt-1">{tr("إدارة الحوافز والدوام الإضافي والمكافآت")}</p>
           </div>
           <Button className="gap-2">
             <Plus className="w-4 h-4" />
-            إضافة حافزة جديدة
+            {tr("إضافة حافزة جديدة")}
           </Button>
         </div>
 
@@ -99,31 +104,31 @@ export default function Incentives() {
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">إجمالي الحوافز</p>
-                <p className="text-3xl font-bold mt-2">125,000 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("إجمالي الحوافز")}</p>
+                <p className="text-3xl font-bold mt-2">125,000  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">المعتمدة</p>
-                <p className="text-3xl font-bold mt-2">95,000 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("المعتمدة")}</p>
+                <p className="text-3xl font-bold mt-2">95,000  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">المعلقة</p>
-                <p className="text-3xl font-bold mt-2">30,000 ر.س</p>
+                <p className="text-sm text-gray-600">{tr("المعلقة")}</p>
+                <p className="text-3xl font-bold mt-2">30,000  {tr("ر.س")}</p>
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <div className="text-center">
-                <p className="text-sm text-gray-600">معدل الموافقة</p>
+                <p className="text-sm text-gray-600">{tr("معدل الموافقة")}</p>
                 <p className="text-3xl font-bold mt-2">76%</p>
               </div>
             </CardContent>
@@ -133,43 +138,43 @@ export default function Incentives() {
         {/* التبويبات */}
         <Tabs defaultValue="incentives" className="w-full">
           <TabsList>
-            <TabsTrigger value="incentives">الحوافز</TabsTrigger>
-            <TabsTrigger value="overtimes">الدوام الإضافي</TabsTrigger>
-            <TabsTrigger value="approvals">الاعتمادات</TabsTrigger>
+            <TabsTrigger value="incentives">{tr("الحوافز")}</TabsTrigger>
+            <TabsTrigger value="overtimes">{tr("الدوام الإضافي")}</TabsTrigger>
+            <TabsTrigger value="approvals">{tr("الاعتمادات")}</TabsTrigger>
           </TabsList>
 
           {/* الحوافز */}
           <TabsContent value="incentives" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>قائمة الحوافز</CardTitle>
-                <CardDescription>جميع الحوافز المسجلة والمعتمدة</CardDescription>
+                <CardTitle>{tr("قائمة الحوافز")}</CardTitle>
+                <CardDescription>{tr("جميع الحوافز المسجلة والمعتمدة")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>الرقم الوظيفي</TableHead>
-                        <TableHead>الاسم</TableHead>
-                        <TableHead>الفئة</TableHead>
-                        <TableHead>المبلغ</TableHead>
-                        <TableHead>مرحلة الاعتماد</TableHead>
-                        <TableHead>الحالة</TableHead>
-                        <TableHead>الإجراءات</TableHead>
+                        <TableHead>{tr("الرقم الوظيفي")}</TableHead>
+                        <TableHead>{tr("الاسم")}</TableHead>
+                        <TableHead>{tr("الفئة")}</TableHead>
+                        <TableHead>{tr("المبلغ")}</TableHead>
+                        <TableHead>{tr("مرحلة الاعتماد")}</TableHead>
+                        <TableHead>{tr("الحالة")}</TableHead>
+                        <TableHead>{tr("الإجراءات")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {incentives.map((incentive) => (
                         <TableRow key={incentive.id}>
                           <TableCell className="font-medium">{incentive.employeeId}</TableCell>
-                          <TableCell>{incentive.name}</TableCell>
-                          <TableCell>{incentive.category}</TableCell>
-                          <TableCell>{incentive.amount} ر.س</TableCell>
-                          <TableCell className="text-sm">{incentive.approvalStage}</TableCell>
+                          <TableCell>{tr(incentive.name)}</TableCell>
+                          <TableCell>{tr(incentive.category)}</TableCell>
+                          <TableCell>{incentive.amount} {tr("ر.س")}</TableCell>
+                          <TableCell className="text-sm">{tr(incentive.approvalStage)}</TableCell>
                           <TableCell>
                             <Badge className={getStatusColor(incentive.status)}>
-                              {incentive.status}
+                              {tr(incentive.status)}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -178,11 +183,11 @@ export default function Incentives() {
                                 <>
                                   <Button variant="ghost" size="sm" className="gap-1 text-green-600">
                                     <Check className="w-4 h-4" />
-                                    موافقة
+                                    {tr("موافقة")}
                                   </Button>
                                   <Button variant="ghost" size="sm" className="gap-1 text-red-600">
                                     <X className="w-4 h-4" />
-                                    رفض
+                                    {tr("رفض")}
                                   </Button>
                                 </>
                               )}
@@ -201,33 +206,33 @@ export default function Incentives() {
           <TabsContent value="overtimes" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>الدوام الإضافي</CardTitle>
-                <CardDescription>سجل الساعات الإضافية والمكافآت</CardDescription>
+                <CardTitle>{tr("الدوام الإضافي")}</CardTitle>
+                <CardDescription>{tr("سجل الساعات الإضافية والمكافآت")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>الرقم الوظيفي</TableHead>
-                        <TableHead>الاسم</TableHead>
-                        <TableHead>عدد الساعات</TableHead>
-                        <TableHead>المبلغ</TableHead>
-                        <TableHead>التاريخ</TableHead>
-                        <TableHead>الحالة</TableHead>
+                        <TableHead>{tr("الرقم الوظيفي")}</TableHead>
+                        <TableHead>{tr("الاسم")}</TableHead>
+                        <TableHead>{tr("عدد الساعات")}</TableHead>
+                        <TableHead>{tr("المبلغ")}</TableHead>
+                        <TableHead>{tr("التاريخ")}</TableHead>
+                        <TableHead>{tr("الحالة")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {overtimes.map((overtime) => (
                         <TableRow key={overtime.id}>
                           <TableCell className="font-medium">{overtime.employeeId}</TableCell>
-                          <TableCell>{overtime.name}</TableCell>
-                          <TableCell>{overtime.hours} ساعات</TableCell>
-                          <TableCell>{overtime.amount} ر.س</TableCell>
+                          <TableCell>{tr(overtime.name)}</TableCell>
+                          <TableCell>{overtime.hours} {tr("ساعات")}</TableCell>
+                          <TableCell>{overtime.amount} {tr("ر.س")}</TableCell>
                           <TableCell>{overtime.date}</TableCell>
                           <TableCell>
                             <Badge className={getStatusColor(overtime.status)}>
-                              {overtime.status}
+                              {tr(overtime.status)}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -243,30 +248,30 @@ export default function Incentives() {
           <TabsContent value="approvals" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>دورة الاعتمادات</CardTitle>
-                <CardDescription>مراحل اعتماد الحوافز الثلاث</CardDescription>
+                <CardTitle>{tr("دورة الاعتمادات")}</CardTitle>
+                <CardDescription>{tr("مراحل اعتماد الحوافز الثلاث")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex items-center gap-4 p-4 border rounded-lg">
                     <Clock className="w-6 h-6 text-blue-600" />
                     <div className="flex-1">
-                      <p className="font-semibold">المرحلة الأولى: الشؤون الإدارية</p>
-                      <p className="text-sm text-gray-600">تدقيق أولي للحافزة والمستندات</p>
+                      <p className="font-semibold">{tr("المرحلة الأولى: الشؤون الإدارية")}</p>
+                      <p className="text-sm text-gray-600">{tr("تدقيق أولي للحافزة والمستندات")}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 p-4 border rounded-lg">
                     <Clock className="w-6 h-6 text-yellow-600" />
                     <div className="flex-1">
-                      <p className="font-semibold">المرحلة الثانية: المراجعة المالية</p>
-                      <p className="text-sm text-gray-600">تحقق من الميزانية والمبالغ</p>
+                      <p className="font-semibold">{tr("المرحلة الثانية: المراجعة المالية")}</p>
+                      <p className="text-sm text-gray-600">{tr("تحقق من الميزانية والمبالغ")}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4 p-4 border rounded-lg">
                     <Check className="w-6 h-6 text-green-600" />
                     <div className="flex-1">
-                      <p className="font-semibold">المرحلة الثالثة: رئيس الحسابات</p>
-                      <p className="text-sm text-gray-600">الموافقة النهائية والصرف</p>
+                      <p className="font-semibold">{tr("المرحلة الثالثة: رئيس الحسابات")}</p>
+                      <p className="text-sm text-gray-600">{tr("الموافقة النهائية والصرف")}</p>
                     </div>
                   </div>
                 </div>

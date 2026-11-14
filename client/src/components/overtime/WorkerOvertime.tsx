@@ -9,17 +9,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
 
 /** Keep one approval page instead of repeating forms inside the leave section. */
 export function WorkerOvertime({ workerId }: { workerId?: number }) {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => language === "en" ? en : language === "ur" ? ur : ar;
   if (!permits(user?.permissions ?? [], "overtime:read")) return null;
   return (
-    <Card dir="rtl">
+    <Card dir={language === "en" ? "ltr" : "rtl"}>
       <CardHeader>
-        <CardTitle>العمل الإضافي</CardTitle>
+        <CardTitle>{text("العمل الإضافي", "Overtime", "اوور ٹائم")}</CardTitle>
         <CardDescription>
-          الزيادات المخططة والفعلية وقرارات المشرف والشؤون الإدارية في سجل موحد.
+          {text("الزيادات المخططة والفعلية وقرارات المشرف والشؤون الإدارية في سجل موحد.", "Planned and actual overtime with supervisor and administration decisions in one record.", "منصوبہ بند اور حقیقی اوور ٹائم اور سپروائزر و انتظامیہ کے فیصلے ایک ریکارڈ میں۔")}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -28,8 +31,8 @@ export function WorkerOvertime({ workerId }: { workerId?: number }) {
             href={workerId ? `/overtime?workerId=${workerId}` : "/overtime"}
           >
             {workerId
-              ? "فتح العمل الإضافي لهذا العامل"
-              : "فتح صفحة العمل الإضافي"}
+              ? text("فتح العمل الإضافي لهذا العامل", "Open this worker's overtime", "اس ملازم کا اوور ٹائم کھولیں")
+              : text("فتح صفحة العمل الإضافي", "Open overtime page", "اوور ٹائم کا صفحہ کھولیں")}
           </Link>
         </Button>
       </CardContent>

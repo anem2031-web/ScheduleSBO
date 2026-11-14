@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeDigits } from "@shared/display-format";
 import { permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
+import { localizedName } from "@/lib/localized-data";
 
 /** Archive through the existing worker lifecycle; payroll and attendance history remain intact. */
 export function WorkerArchiveAction({
@@ -23,11 +25,14 @@ export function WorkerArchiveAction({
   onCompleted,
   variant = "ghost",
 }: {
-  worker: { id: number; nameAr: string; status: string };
+  worker: { id: number; nameAr: string; nameEn?: string | null; nameUr?: string | null; status: string };
   onCompleted?: (restored: boolean) => void;
   variant?: "ghost" | "outline";
 }) {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
+  const displayName = localizedName(worker, language);
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -40,8 +45,8 @@ export function WorkerArchiveAction({
     setSubmitted(false);
     toast.success(
       restored
-        ? "تمت استعادة العامل إلى القائمة النشطة"
-        : "تم حذف العامل من القائمة النشطة مع الاحتفاظ بسجلاته",
+        ? text("تمت استعادة العامل إلى القائمة النشطة", "Worker restored to the active list", "کارکن فعال فہرست میں بحال ہو گیا")
+        : text("تم حذف العامل من القائمة النشطة مع الاحتفاظ بسجلاته", "Worker removed from the active list; records retained", "کارکن فعال فہرست سے ہٹا دیا گیا؛ ریکارڈ محفوظ ہے"),
     );
     onCompleted?.(restored);
     await Promise.allSettled([
@@ -75,7 +80,7 @@ export function WorkerArchiveAction({
             ? "gap-1.5"
             : "gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
         }
-        aria-label={`${restoring ? "استعادة" : "حذف"} العامل ${normalizeDigits(worker.nameAr)}`}
+        aria-label={`${restoring ? text("استعادة العامل", "Restore worker", "کارکن بحال کریں") : text("حذف العامل", "Remove worker", "کارکن ہٹائیں")} ${normalizeDigits(displayName)}`}
         onClick={() => {
           setOpen(true);
           setReason("");
@@ -87,7 +92,7 @@ export function WorkerArchiveAction({
         ) : (
           <Trash2 className="h-4 w-4" />
         )}
-        {restoring ? "استعادة" : "حذف"}
+        {restoring ? text("استعادة", "Restore", "بحال کریں") : text("حذف", "Remove", "ہٹائیں")}
       </Button>
       <Dialog
         open={open}
@@ -95,15 +100,15 @@ export function WorkerArchiveAction({
           if (!pending) setOpen(value);
         }}
       >
-        <DialogContent dir="rtl">
+        <DialogContent dir={language === "en" ? "ltr" : "rtl"}>
           <DialogHeader>
             <DialogTitle>
-              {restoring ? "استعادة العامل" : "حذف العامل من القائمة النشطة"}
+              {restoring ? text("استعادة العامل", "Restore worker", "کارکن بحال کریں") : text("حذف العامل من القائمة النشطة", "Remove worker from active list", "کارکن کو فعال فہرست سے ہٹائیں")}
             </DialogTitle>
             <DialogDescription className="leading-7">
               {restoring
-                ? `ستعيد «${normalizeDigits(worker.nameAr)}» إلى قائمة العمال النشطين مع بقاء بياناته وسجلاته السابقة.`
-                : `سيُحذف «${normalizeDigits(worker.nameAr)}» من قائمة العمال النشطين وتُؤرشف بطاقته بصفة منتهي الخدمة. تبقى سجلات الحضور والجداول والرواتب محفوظة. يمكنك عرضه واستعادته باختيار «إظهار المؤرشفين وغير النشطين».`}
+                ? text(`ستعيد «${normalizeDigits(displayName)}» إلى قائمة العمال النشطين مع بقاء بياناته وسجلاته السابقة.`, `Restore ${normalizeDigits(displayName)} to the active worker list while retaining their previous records.`, `${normalizeDigits(displayName)} کو سابقہ ریکارڈ برقرار رکھتے ہوئے فعال کارکنوں کی فہرست میں بحال کریں۔`)
+                : text(`سيُحذف «${normalizeDigits(displayName)}» من قائمة العمال النشطين وتُؤرشف بطاقته بصفة منتهي الخدمة. تبقى سجلات الحضور والجداول والرواتب محفوظة. يمكنك عرضه واستعادته باختيار «إظهار المؤرشفين وغير النشطين».`, `${normalizeDigits(displayName)} will be removed from the active list and archived as employment ended. Attendance, schedules and payroll records remain. Select “Show archived and inactive workers” to view or restore.`, `${normalizeDigits(displayName)} فعال فہرست سے ہٹا کر ملازمت ختم کے طور پر محفوظ کیا جائے گا۔ حاضری، شیڈول اور تنخواہ کا ریکارڈ برقرار رہے گا۔ دیکھنے یا بحال کرنے کے لیے محفوظ شدہ اور غیر فعال کارکن دکھائیں منتخب کریں۔`)}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -123,7 +128,7 @@ export function WorkerArchiveAction({
           >
             <div className="space-y-2">
               <Label htmlFor={`worker-action-reason-${worker.id}`}>
-                {restoring ? "سبب الاستعادة" : "سبب الحذف والأرشفة"}
+                {restoring ? text("سبب الاستعادة", "Reason for restoring", "بحالی کی وجہ") : text("سبب الحذف والأرشفة", "Reason for removal and archiving", "ہٹانے اور محفوظ کرنے کی وجہ")}
               </Label>
               <Textarea
                 id={`worker-action-reason-${worker.id}`}
@@ -135,7 +140,7 @@ export function WorkerArchiveAction({
               />
               {submitted && invalid && (
                 <p role="alert" className="text-sm text-destructive">
-                  اكتب سببًا واضحًا من 3 أحرف على الأقل.
+                  {text("اكتب سببًا واضحًا من 3 أحرف على الأقل.", "Enter a clear reason of at least 3 characters.", "کم از کم 3 حروف کی واضح وجہ درج کریں۔")}
                 </p>
               )}
             </div>
@@ -146,7 +151,7 @@ export function WorkerArchiveAction({
                 disabled={pending}
                 onClick={() => setOpen(false)}
               >
-                إلغاء
+                {text("إلغاء", "Cancel", "منسوخ کریں")}
               </Button>
               <Button
                 type="submit"
@@ -155,10 +160,10 @@ export function WorkerArchiveAction({
               >
                 {pending && <Loader2 className="h-4 w-4 animate-spin" />}
                 {pending
-                  ? "جارٍ الحفظ…"
+                  ? text("جارٍ الحفظ…", "Saving…", "محفوظ ہو رہا ہے…")
                   : restoring
-                    ? "تأكيد الاستعادة"
-                    : "تأكيد الحذف والأرشفة"}
+                    ? text("تأكيد الاستعادة", "Confirm restore", "بحالی کی تصدیق")
+                    : text("تأكيد الحذف والأرشفة", "Confirm removal and archive", "ہٹانے اور محفوظ کرنے کی تصدیق")}
               </Button>
             </DialogFooter>
           </form>

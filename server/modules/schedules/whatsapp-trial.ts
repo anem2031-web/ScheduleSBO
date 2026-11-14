@@ -5,6 +5,8 @@ import { addCalendarDays, isCalendarDate, sundayOf } from "../../../shared/weekl
 import { operationalClockMinutes } from "../../../shared/operational-day";
 import { getDb } from "../../shared/db";
 import { claimScheduleDelivery, saveScheduleDelivery, stageScheduleDelivery } from "./whatsapp-trial-state";
+import { acceptedDelivery, beginDelivery, failedDelivery } from './whatsapp-delivery-tracking';
+import { englishScheduleValues, englishUpdateValues, englishWeekdays, templateName, type ScheduleMessageFormat, type ScheduleMessageOptions } from "./whatsapp-template-formats";
 
 export type TrialSendReport = {
   mode: "disabled" | "waiting" | "test";
@@ -59,6 +61,7 @@ export function trialConfig() {
     .filter((number): number is string => number !== null);
   const unique = Array.from(new Set(allowed));
   const enabled = process.env.WHATSAPP_TRIAL_ENABLED === "true";
+  const requestedEnglishFormat = process.env.WHATSAPP_TRIAL_EN_FORMAT;
   if (unique.length > 5) throw new Error("تجربة وردية تقتصر على خمسة مستلمين");
   return {
     enabled,
@@ -73,7 +76,49 @@ export function trialConfig() {
       ? process.env.WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_NAME?.trim() ?? "" : "",
     approvedUpdateTemplate: process.env.WHATSAPP_TRIAL_UPDATE_TEMPLATE_APPROVED === "true"
       ? process.env.WHATSAPP_TRIAL_UPDATE_TEMPLATE_NAME?.trim() ?? "" : "",
+    enTemplatesApproved: process.env.WHATSAPP_TRIAL_EN_TEMPLATES_APPROVED === "true",
+    englishFormat: (requestedEnglishFormat === "text" || requestedEnglishFormat === "image" ? requestedEnglishFormat : "media") as ScheduleMessageFormat,
   };
+}
+
+const defaultMessageOptions: ScheduleMessageOptions = { language: "ar", format: "text", workerName: "" };
+
+async function uploadScheduleImage(phoneId: string, token: string, png: Buffer): Promise<string> {
+  const data = new FormData();
+  data.set("messaging_product", "whatsapp");
+  data.set("type", "image/png");
+  data.set("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "schedule.png");
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${phoneId}/media`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` }, body: data, signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw await metaTrialError(response);
+  const body = await response.json() as { id?: unknown };
+  if (typeof body.id !== "string" || !/^\d+$/.test(body.id)) throw new Error("تعذر تجهيز صورة واتساب");
+  return body.id;
+}
+
+async function englishTemplateComponents(kind: "weekly" | "update", format: ScheduleMessageFormat, values: string[], workerName: string, phoneId: string, token: string) {
+  const localized = kind === "weekly" ? englishScheduleValues(values) : englishUpdateValues(values);
+  const components: Array<Record<string, unknown>> = [];
+  if (format !== "text") {
+    const { renderWeeklySchedulePng, renderScheduleUpdatePng } = await import("./whatsapp-images");
+    const png = kind === "weekly"
+      ? await renderWeeklySchedulePng({ workerName, days: englishWeekdays.map((day, index) => ({ day, date: localized[index * 3], lines: localized.slice(index * 3 + 1, index * 3 + 3).filter(value => value !== "—") })) })
+      : await renderScheduleUpdatePng({ workerName, day: localized[0], date: localized[1], changeType: localized[2], lines: localized.slice(3).filter(value => value !== "—") });
+    const id = await uploadScheduleImage(phoneId, token, png);
+    components.push({ type: "header", parameters: [{ type: "image", image: { id } }] });
+  }
+  if (format !== "image") components.push({ type: "body", parameters: localized.map(text => ({ type: "text", text })) });
+  return components;
+}
+
+async function renderEnglishWeeklyPreview(values: string[], workerName: string): Promise<string> {
+  const localized = englishScheduleValues(values);
+  const { renderWeeklySchedulePng } = await import("./whatsapp-images");
+  const image = await renderWeeklySchedulePng({ workerName, days: englishWeekdays.map((day, index) => ({
+    day, date: localized[index * 3], lines: localized.slice(index * 3 + 1, index * 3 + 3).filter(value => value !== "—"),
+  })) });
+  return `data:image/png;base64,${image.toString("base64")}`;
 }
 
 export type WeeklyTemplateInput = {
@@ -142,35 +187,60 @@ export function buildScheduleUpdates(previous: string[], current: string[]): str
   return updates;
 }
 
-export async function sendTrialUpdate(to: string, update: string[]): Promise<boolean> {
+async function readMetaMessageId(response: Response): Promise<string | null> {
+  try { const data=await response.json() as {messages?: Array<{id?:unknown}>}; const id=data.messages?.[0]?.id; return typeof id==='string' && /^wamid\.[A-Za-z0-9_+=.\/\-]{1,240}$/.test(id) ? id : null; } catch { return null; }
+}
+
+export async function sendTrialUpdate(to: string, update: string[], options: ScheduleMessageOptions = defaultMessageOptions, onAccepted?: (messageId:string|null)=>Promise<void>, onAttempt?:()=>void): Promise<boolean> {
   const config = trialConfig();
-  if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to) || !config.approvedUpdateTemplate) return false;
+  if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to) || (options.language === "ar" ? !config.approvedUpdateTemplate : !config.enTemplatesApproved)) return false;
   if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم واتساب غير صالح");
   if (update.length !== 5 || update.some((value) => !value.trim() || /[\r\n\t]/.test(value))) throw new Error("قالب التعديل يتطلب 5 قيم نصية غير فارغة");
+  const body=JSON.stringify({ messaging_product: "whatsapp", to, type: "template", template: {
+      name: options.language === "ar" ? config.approvedUpdateTemplate : templateName("update", options.format), language: { code: options.language },
+      components: options.language === "ar" ? [{ type: "body", parameters: update.map((text) => ({ type: "text", text })) }]
+        : await englishTemplateComponents("update", options.format, update, options.workerName, config.phoneId, config.token),
+    } });
+  onAttempt?.();
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "template", template: {
-      name: config.approvedUpdateTemplate, language: { code: "ar" },
-      components: [{ type: "body", parameters: update.map((text) => ({ type: "text", text })) }],
-    } }), signal: AbortSignal.timeout(12000),
+    method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+    body, signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) throw await metaTrialError(response);
+  if (onAccepted) await onAccepted(await readMetaMessageId(response));
   return true;
 }
 
+async function trackedTemplateRequest(input:{periodId:number;workerId:number;phone:string;kind:'weekly'|'update';workDate?:string}, send:(onAccepted:(id:string|null)=>Promise<void>,onAttempt:()=>void)=>Promise<boolean>, onRequest:()=>void) {
+  const id=await beginDelivery({periodId:input.periodId,workerId:input.workerId,kind:input.kind,workDate:input.workDate,phoneEnding:input.phone.slice(-4)});
+  let accepted=false;
+  try {
+    const ok=await send(async(messageId)=>{
+      accepted=true;
+      // Meta already accepted it. Never retry a successful send merely because
+      // recording its ID failed; the stale pending entry becomes unknown.
+      try { await acceptedDelivery(id,messageId); }
+      catch { console.error('WhatsApp delivery accepted but tracking could not be saved'); }
+    },onRequest);
+    if (!ok) throw new Error('الإرسال غير مفعّل');
+  } catch(error) {
+    // A timeout or a lost response is ambiguous; never report certain failure or resend.
+    if (!accepted) try { await failedDelivery(id,error instanceof MetaTrialError && error.status>=400 && error.status<500,error instanceof MetaTrialError ? String(error.metaCode ?? error.status) : null); } catch { /* retain pending if persistence fails */ }
+    throw error;
+  }
+}
+
 /** Serialize a worker's pilot messages; uncertain delivery is never retried automatically. */
-export async function deliverChangedSchedule(periodId: number, workerId: number, phone: string, current: string[]): Promise<"sent" | "unchanged"> {
+export async function deliverChangedSchedule(periodId: number, workerId: number, phone: string, current: string[], options: ScheduleMessageOptions = defaultMessageOptions, forceWeekly = false): Promise<"sent" | "unchanged"> {
   const config = trialConfig();
   const { claimId, snapshot: prior } = await claimScheduleDelivery(periodId, workerId);
   let snapshot = prior;
   let requested = false;
   try {
-    if (!snapshot) {
-      if (!config.approvedTemplate) throw new Error("قالب الجدول الأسبوعي غير معتمد أو غير مهيأ");
+    if (!snapshot || forceWeekly) {
+      if (options.language === "ar" ? !config.approvedTemplate : !config.enTemplatesApproved) throw new Error("قالب الجدول الأسبوعي غير معتمد أو غير مهيأ");
       await stageScheduleDelivery(periodId, workerId, claimId, current);
-      requested = true;
-      if (!await sendTrialTemplate(phone, current)) throw new Error("إرسال الجدول غير مفعّل لهذا العامل");
+      await trackedTemplateRequest({periodId,workerId,phone,kind:'weekly'},(onAccepted,onAttempt)=>sendTrialTemplate(phone,current,options,onAccepted,onAttempt),()=>{requested=true});
       snapshot = [...current];
       await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
       return "sent";
@@ -180,16 +250,17 @@ export async function deliverChangedSchedule(periodId: number, workerId: number,
       await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
       return "unchanged";
     }
-    if (!config.approvedUpdateTemplate) throw new Error("قالب تعديل الدوام غير معتمد أو غير مهيأ");
+    if (options.language === "ar" ? !config.approvedUpdateTemplate : !config.enTemplatesApproved) throw new Error("قالب تعديل الدوام غير معتمد أو غير مهيأ");
     for (const update of updates) {
       const day = ARABIC_WEEKDAYS.indexOf(update[0]);
       const next: string[] = [...(snapshot ?? [])];
       next.splice(day * 3, 3, ...current.slice(day * 3, day * 3 + 3));
       await stageScheduleDelivery(periodId, workerId, claimId, next);
-      requested = true;
-      if (!await sendTrialUpdate(phone, update)) throw new Error("إرسال التعديل غير مفعّل لهذا العامل");
+      const workDate=`${update[1].slice(6,10)}-${update[1].slice(3,5)}-${update[1].slice(0,2)}`;
+      await trackedTemplateRequest({periodId,workerId,phone,kind:'update',workDate},(onAccepted,onAttempt)=>sendTrialUpdate(phone,update,options,onAccepted,onAttempt),()=>{requested=true});
       snapshot = next;
       await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "sending");
+      requested = false;
     }
     await saveScheduleDelivery(periodId, workerId, claimId, snapshot, "idle");
     return "sent";
@@ -201,32 +272,36 @@ export async function deliverChangedSchedule(periodId: number, workerId: number,
   }
 }
 
-export async function sendTrialTemplate(to: string, schedule?: string[]): Promise<boolean> {
+export async function sendTrialTemplate(to: string, schedule?: string[], options: ScheduleMessageOptions = defaultMessageOptions, onAccepted?: (messageId:string|null)=>Promise<void>, onAttempt?:()=>void): Promise<boolean> {
   const config = trialConfig();
   if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to)) return false;
   if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم Meta التجريبي غير صالح");
   // A schedule must never fall back to the fixed hello_world connectivity probe.
-  if (schedule && !config.approvedTemplate) return false;
+  if (schedule && (options.language === "ar" ? !config.approvedTemplate : !config.enTemplatesApproved)) return false;
   if (schedule && (schedule.length !== 21 || schedule.some((value) => !value.trim() || /[\r\n\t]/.test(value))))
     throw new Error("قالب الجدول يتطلب 21 قيمة نصية غير فارغة، كل قيمة في سطر واحد");
   const useScheduleTemplate = !!schedule;
-  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const body=JSON.stringify({
       messaging_product: "whatsapp",
       to,
       type: "template",
       template: useScheduleTemplate
         ? {
-          name: config.approvedTemplate, language: { code: "ar" },
-          components: [{ type: "body", parameters: schedule!.map((text) => ({ type: "text", text })) }],
+          name: options.language === "ar" ? config.approvedTemplate : templateName("weekly", options.format), language: { code: options.language },
+          components: options.language === "ar" ? [{ type: "body", parameters: schedule!.map((text) => ({ type: "text", text })) }]
+            : await englishTemplateComponents("weekly", options.format, schedule!, options.workerName, config.phoneId, config.token),
         }
         : { name: "hello_world", language: { code: "en_US" } },
-    }),
+    });
+  onAttempt?.();
+  const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+    body,
     signal: AbortSignal.timeout(12000),
   });
   if (!response.ok) throw await metaTrialError(response);
+  if (onAccepted) await onAccepted(await readMetaMessageId(response));
   return true;
 }
 
@@ -238,7 +313,7 @@ export async function sendTrialProbe(recipientIndex: number): Promise<void> {
   await sendTrialTemplate(target);
 }
 
-async function prepareTrialForPublishedPeriod(periodId: number) {
+async function prepareTrialForPublishedPeriod(periodId: number, requestedFormat: ScheduleMessageFormat = "media") {
   const config = trialConfig();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -250,14 +325,14 @@ async function prepareTrialForPublishedPeriod(periodId: number) {
   const start = dateKey(period.startDate), end = dateKey(period.endDate);
   // Do not send a legacy partial/multi-week period through a fixed seven-day template.
   buildWeeklyTemplateValues({ start, end, rows: [] });
-  const unique = new Map<number, { id: number; phone: string | null; name: string; rows: Array<{ date: string; from: string; to: string }> }>();
+  const unique = new Map<number, { id: number; phone: string | null; name: string; nameEn: string | null; preferredLanguage: string; rows: Array<{ date: string; from: string; to: string }> }>();
   // Leave-only and incomplete workers have no assignment row. Start with active pilot
   // workers so they can be previewed and approved leave can still produce a full week.
-  const pilotWorkers = await db.select({ id: workers.id, phone: workers.phoneNumber, name: workers.nameAr })
+  const pilotWorkers = await db.select({ id: workers.id, phone: workers.phoneNumber, name: workers.nameAr, nameEn: workers.nameEn, preferredLanguage: workers.preferredLanguage })
     .from(workers).where(and(eq(workers.isActive, true), inArray(workers.status, ["active", "on_leave"])));
   for (const worker of pilotWorkers) {
     const phone = recipientNumber(worker.phone);
-    if (phone && config.recipients.has(phone)) unique.set(worker.id, { id: worker.id, phone, name: worker.name, rows: [] });
+    if (phone && config.recipients.has(phone)) unique.set(worker.id, { id: worker.id, phone, name: worker.name, nameEn: worker.nameEn ?? null, preferredLanguage: worker.preferredLanguage ?? "ar", rows: [] });
   }
   const ids = Array.from(unique.keys());
   const [rows, settings, calendar, leaves] = ids.length ? await Promise.all([
@@ -278,7 +353,13 @@ async function prepareTrialForPublishedPeriod(periodId: number) {
   const recipients = Array.from(unique.values())
     .filter((item): item is typeof item & { phone: string } => !!item.phone && config.recipients.has(item.phone));
   const messages = recipients.map((item) => {
+    const language: "ar" | "en" | null = item.preferredLanguage === "ar" ? "ar" : item.preferredLanguage === "en" ? "en" : null;
+    const deliveryFormat = language === "ar" ? "text" as const : language === "en" ? requestedFormat : null;
+    const configurationError = language === "en" && !config.enTemplatesApproved ? "القوالب الإنجليزية غير مفعلة في إعدادات واتساب"
+      : language === "ar" && !config.approvedTemplate ? "قالب الجدول العربي غير مفعّل في إعدادات واتساب" : null;
     try {
+      if (!language || !deliveryFormat) throw new Error("لا يوجد قالب معتمد للغة التواصل المحددة؛ اختر العربية أو الإنجليزية في بطاقة العامل");
+      if (language === "en" && deliveryFormat !== "text" && !item.nameEn?.trim()) throw new Error("أدخل الاسم الإنجليزي للعامل قبل إرسال الصورة الإنجليزية");
       if (recipients.some((other) => other.id !== item.id && other.phone === item.phone))
         throw new Error("رقم الهاتف مرتبط بأكثر من عامل؛ صحح الربط قبل إرسال جدول شخصي");
       const values = buildWeeklyTemplateValues({
@@ -289,33 +370,42 @@ async function prepareTrialForPublishedPeriod(periodId: number) {
           .map((leave) => ({ start: dateKey(leave.startDate!), end: dateKey(leave.endDate!), kind: leave.kind as "annual" | "sick" })),
       });
       const missingDays = values.filter((value, index) => index % 3 === 1 && value === "لم يُحدد الدوام").length;
-      return { workerId: item.id, name: item.name, phone: item.phone, values,
+      return { workerId: item.id, name: item.name, nameEn: item.nameEn, phone: item.phone, language, deliveryFormat, configurationError, values,
         error: missingDays ? `الجدول غير مكتمل: لم يُحدد الدوام في ${missingDays} أيام؛ لا يُرسل حتى يكتمل` : null };
     } catch (error) {
-      return { workerId: item.id, name: item.name, phone: item.phone, values: null, error: error instanceof Error ? error.message : "تعذر تجهيز جدول العامل" };
+      return { workerId: item.id, name: item.name, nameEn: item.nameEn, phone: item.phone, language, deliveryFormat, configurationError, values: null, error: error instanceof Error ? error.message : "تعذر تجهيز جدول العامل" };
     }
   });
   return { messages, skipped: unique.size - recipients.length };
 }
 
 /** Read-only preview for the allowlisted workers; no access token or complete phone is returned. */
-export async function previewTrialForPublishedPeriod(periodId: number) {
-  const preview = await prepareTrialForPublishedPeriod(periodId);
+export async function previewTrialForPublishedPeriod(periodId: number, format: ScheduleMessageFormat = "media") {
+  const preview = await prepareTrialForPublishedPeriod(periodId, format);
   return {
     ...preview,
-    messages: preview.messages.map(({ phone, ...message }) => ({ ...message, phoneEnding: phone.slice(-4) })),
+    messages: await Promise.all(preview.messages.map(async ({ phone, ...message }) => {
+      let imagePreview: string | null = null;
+      let error = message.error;
+      if (!error && message.language === "en" && message.deliveryFormat !== "text" && message.values) {
+        try { imagePreview = await renderEnglishWeeklyPreview(message.values, message.nameEn!.trim()); }
+        catch { error = "تعذر إنشاء معاينة صورة الجدول"; }
+      }
+      return { ...message, values: message.values && message.language === "en" ? englishScheduleValues(message.values) : message.values,
+        imagePreview, error, phoneEnding: phone.slice(-4) };
+    })),
   };
 }
 
 /** Only approved-period workers whose phone is explicitly allowlisted can receive a test message. */
-export async function sendTrialForPublishedPeriod(periodId: number, actor?: { role: string; accessScope?: unknown }): Promise<TrialSendReport> {
+export async function sendTrialForPublishedPeriod(periodId: number, actor?: { role: string; accessScope?: unknown }, format?: ScheduleMessageFormat, forceWeekly = false): Promise<TrialSendReport> {
   const config = trialConfig();
   const unavailable = !config.enabled || !config.phoneId || !config.token || !config.recipients.size;
   if (unavailable) return { mode: "disabled", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال واتساب التجريبي غير مفعّل" };
   if (actor && (actor.role === "supervisor" || actor.role === "worker" || (actor.role !== "admin" && actor.accessScope != null)))
     return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "إرسال جداول التجربة المتعددة متاح لمسؤول بصلاحية تغطي جميع المراكز" };
-  if (!config.connectionTest && !config.approvedTemplate) return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "الجدول معتمد، وإرسال الورديات ينتظر اعتماد قالب Meta وضبطه. لم تُرسل رسالة الاختبار بدل الجدول." };
-  const prepared = await prepareTrialForPublishedPeriod(periodId);
+  if (!config.connectionTest && !config.approvedTemplate && !config.enTemplatesApproved) return { mode: "waiting", eligible: 0, sent: 0, failed: 0, skipped: 0, note: "الجدول معتمد، وإرسال الورديات ينتظر اعتماد قالب Meta وضبطه. لم تُرسل رسالة الاختبار بدل الجدول." };
+  const prepared = await prepareTrialForPublishedPeriod(periodId, format ?? config.englishFormat);
   // The configured allowlist is capped at five even if a week contains hundreds of workers.
   const results = await Promise.allSettled(prepared.messages.map(async (message) => {
     if (!message.values || message.error) throw new Error(message.error ?? "تعذر تجهيز جدول العامل");
@@ -325,7 +415,9 @@ export async function sendTrialForPublishedPeriod(periodId: number, actor?: { ro
       if (!await sendTrialTemplate(message.phone)) throw new Error("إرسال التجربة غير مفعّل لهذا العامل");
       return "sent" as const;
     }
-    return deliverChangedSchedule(periodId, message.workerId, message.phone, message.values);
+    if (message.configurationError) throw new Error(message.configurationError);
+    if (!message.language || !message.deliveryFormat) throw new Error("لغة القالب غير مدعومة");
+    return deliverChangedSchedule(periodId, message.workerId, message.phone, message.values, { language: message.language, format: message.deliveryFormat, workerName: message.nameEn?.trim() || message.name }, forceWeekly);
   }));
   const sent = results.filter((result) => result.status === "fulfilled" && result.value === "sent").length;
   const unchanged = results.filter((result) => result.status === "fulfilled" && result.value === "unchanged").length;

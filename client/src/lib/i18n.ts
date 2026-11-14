@@ -364,22 +364,8 @@ export const translations: TranslationStrings = {
  * دالة الترجمة الرئيسية
  */
 export function t(key: string, language: Language): string {
-  const parts = key.split(".");
-  let current: any = translations;
-
-  for (const part of parts) {
-    if (current[part]) {
-      current = current[part];
-    } else {
-      return key; // إرجاع المفتاح إذا لم توجد الترجمة
-    }
-  }
-
-  if (typeof current === "object" && current[language]) {
-    return normalizeDigits(current[language]);
-  }
-
-  return key;
+  const entry = translations[key];
+  return entry?.[language] ? normalizeDigits(entry[language]) : key;
 }
 
 /**

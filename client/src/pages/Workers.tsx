@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { WorkerBatchTools } from "@/components/workers/WorkerBatchTools";
@@ -59,6 +59,8 @@ import { formatDateTime, normalizeDigits } from "@shared/display-format";
 import { WORKER_LANGUAGES } from "@shared/worker-languages";
 import { workerPhoneNumberSchema } from "@shared/worker-phone";
 import { permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
+import { localizedName, localizedJobTitle } from "@/lib/localized-data";
 
 type WorkerStatus = "active" | "inactive" | "on_leave" | "terminated";
 
@@ -67,6 +69,8 @@ type WorkerForm = {
   fingerprintId: string;
   nameAr: string;
   nameEn: string;
+  nameUr: string;
+  sourceLanguage: "" | "ar" | "en" | "ur";
   phoneNumber: string;
   nationality: string;
   preferredLanguage: string;
@@ -83,6 +87,8 @@ const createEmptyForm = (): WorkerForm => ({
   fingerprintId: "",
   nameAr: "",
   nameEn: "",
+  nameUr: "",
+  sourceLanguage: "ar",
   phoneNumber: "",
   nationality: "",
   preferredLanguage: "ar",
@@ -99,6 +105,12 @@ const statusLabels: Record<WorkerStatus, string> = {
   inactive: "غير نشط",
   on_leave: "في إجازة",
   terminated: "منتهي الخدمة",
+};
+const statusTranslated: Record<WorkerStatus, { en: string; ur: string }> = {
+  active: { en: "Active", ur: "فعال" },
+  inactive: { en: "Inactive", ur: "غیر فعال" },
+  on_leave: { en: "On leave", ur: "چھٹی پر" },
+  terminated: { en: "Employment ended", ur: "ملازمت ختم" },
 };
 
 const fieldClassName =
@@ -126,8 +138,8 @@ function getStatusClass(status: WorkerStatus) {
   }
 }
 
-function formatDate(value: Date | string | null | undefined) {
-  if (!value) return "غير محدد";
+function formatDate(value: Date | string | null | undefined, language: "ar" | "en" | "ur") {
+  if (!value) return { ar: "غير محدد", en: "Not set", ur: "مقرر نہیں" }[language];
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -147,6 +159,9 @@ function formatDate(value: Date | string | null | undefined) {
 
 export default function Workers() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
+  const statusLabel = (status: WorkerStatus) => language === "ar" ? statusLabels[status] : statusTranslated[status]?.[language] ?? status;
   const canManage = user?.role === "admin" || permits(user?.permissions ?? [], "workers:update");
   const canCreate = user?.role === "admin" || permits(user?.permissions ?? [], "workers:create");
   const canDelete = user?.role === "admin" || permits(user?.permissions ?? [], "workers:delete");
@@ -174,6 +189,43 @@ export default function Workers() {
 
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
+  const translationRefreshTimers = useRef<number[]>([]);
+  const [translationWorkerId, setTranslationWorkerId] = useState<number | undefined>();
+  const [translationPolling, setTranslationPolling] = useState(false);
+  const translationStatus = trpc.workers.nameTranslationStatus.useQuery(
+    { workerId: translationWorkerId },
+    { enabled: !!form.sourceLanguage || !!translationWorkerId, refetchInterval: translationPolling ? 2000 : false, retry: false },
+  );
+
+  useEffect(() => () => {
+    translationRefreshTimers.current.forEach(timer => window.clearTimeout(timer));
+  }, []);
+
+  useEffect(() => {
+    // A translation may have finished in the background since this data was cached.
+    void utils.workers.list.invalidate();
+    void utils.workers.referenceData.invalidate();
+  }, [language]);
+
+  const refreshPendingNameTranslation = (id: number) => {
+    // The provider is asynchronous; make recently completed names visible without
+    // claiming that a request was completed or that translation is configured.
+    translationRefreshTimers.current.forEach(timer => window.clearTimeout(timer));
+    translationRefreshTimers.current = [];
+    setTranslationWorkerId(id);
+    setTranslationPolling(true);
+    void utils.workers.nameTranslationStatus.invalidate({ workerId: id });
+    for (const delay of [3000, 8000, 17000, 25000, 30000]) {
+      const timer = window.setTimeout(() => {
+        translationRefreshTimers.current = translationRefreshTimers.current.filter(id => id !== timer);
+        void utils.workers.list.invalidate();
+        void utils.workers.referenceData.invalidate();
+        void utils.workers.getById.invalidate();
+        if (delay === 30000) setTranslationPolling(false);
+      }, delay);
+      translationRefreshTimers.current.push(timer);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -225,7 +277,7 @@ export default function Workers() {
   const createAssignmentMutation =
     trpc.supervisorAssignments.createAssignment.useMutation({
       onError: (error) => {
-        toast.error(`تم حفظ العامل، لكن تعذّر إسناد المشرف: ${error.message}`);
+        toast.error(`${text("تم حفظ العامل، لكن تعذّر إسناد المشرف", "The worker was saved, but the supervisor could not be assigned", "کارکن محفوظ ہو گیا، لیکن سپروائزر مقرر نہیں ہو سکا")}: ${error.message}`);
       },
     });
 
@@ -275,9 +327,9 @@ export default function Workers() {
   const departmentNames = useMemo(
     () =>
       new Map(
-        departments.map((department) => [department.id, department.nameAr]),
+        departments.map((department) => [department.id, localizedName(department, language)]),
       ),
-    [departments],
+    [departments, language],
   );
 
   const workerStatistics = useMemo(
@@ -310,6 +362,8 @@ export default function Workers() {
       fingerprintId: worker.fingerprintId ?? "",
       nameAr: worker.nameAr,
       nameEn: worker.nameEn ?? "",
+      nameUr: worker.nameUr ?? "",
+      sourceLanguage: "",
       phoneNumber: worker.phoneNumber ?? "",
       nationality: worker.nationality ?? "",
       preferredLanguage: worker.preferredLanguage ?? "ar",
@@ -364,7 +418,7 @@ export default function Workers() {
     event.preventDefault();
 
     if (!form.departmentId || !form.jobTitleId) {
-      toast.error("القسم والمسمى الوظيفي مطلوبان");
+      toast.error(text("القسم والمسمى الوظيفي مطلوبان", "Department and job title are required", "شعبہ اور عہدہ درکار ہیں"));
 
       return;
     }
@@ -386,6 +440,10 @@ export default function Workers() {
       nameAr: form.nameAr.trim(),
 
       nameEn: form.nameEn.trim() || undefined,
+
+      nameUr: form.nameUr.trim() || undefined,
+
+      sourceLanguage: form.sourceLanguage || undefined,
 
       phoneNumber: phoneNumber.data ?? null,
 
@@ -420,6 +478,7 @@ export default function Workers() {
       }
 
       if (!workerId) return;
+      if (payload.sourceLanguage) refreshPendingNameTranslation(workerId);
 
       if (
         selectedSupervisorId > 0 &&
@@ -436,7 +495,7 @@ export default function Workers() {
 
         utils.supervisorAssignments.listAssignments.invalidate();
       }
-      toast.success("تم حفظ بيانات العامل وارتباطاته");
+      toast.success(text("تم حفظ بيانات العامل وارتباطاته", "Worker details and assignments saved", "کارکن کی تفصیلات اور ذمہ داریاں محفوظ ہو گئیں"));
       setDialogOpen(false);
       setEditingId(null);
       setForm(createEmptyForm());
@@ -455,6 +514,19 @@ export default function Workers() {
   return (
     <DashboardLayout>
       <div className="executive-page space-y-6">
+        {translationWorkerId && <div role="status" className="rounded-lg border bg-card p-3 text-sm">
+          {translationStatus.isError
+            ? (language === "en" ? "Name translation status is unavailable. Check permissions or the server." : language === "ur" ? "نام کے ترجمے کی حیثیت دستیاب نہیں۔ اجازت یا سرور چیک کریں۔" : "تعذر معرفة حالة ترجمة الاسم؛ تحقق من الصلاحيات أو الخادم.")
+            : translationStatus.data?.attempt === "pending"
+              ? (language === "en" ? "Translating the worker name…" : language === "ur" ? "ملازم کے نام کا ترجمہ جاری ہے…" : "جارٍ ترجمة اسم العامل…")
+              : translationStatus.data?.attempt === "complete"
+                ? (language === "en" ? "Name translation attempt completed. Review the names." : language === "ur" ? "نام کے ترجمے کی کوشش مکمل ہوئی؛ نام چیک کریں۔" : "اكتملت محاولة ترجمة الاسم؛ راجع الأسماء.")
+                : translationStatus.data?.attempt === "failed"
+                  ? (language === "en" ? "Name translation failed. The original was saved. Check server logs and provider settings, then edit the worker, select the source language and save to retry." : language === "ur" ? "نام کا ترجمہ ناکام رہا، اصل نام محفوظ ہے۔ سرور اور فراہم کنندہ کی ترتیبات چیک کریں، پھر ملازم میں ترمیم کر کے اصل زبان منتخب کریں اور دوبارہ محفوظ کریں۔" : "فشلت ترجمة الاسم، وحُفظ الاسم الأصلي. راجع سجلات الخادم وإعدادات الخدمة، ثم عدّل العامل واختر لغة الاسم الأصلية واحفظ لإعادة المحاولة.")
+                  : translationStatus.data?.attempt === "not_configured"
+                    ? (language === "en" ? "Name translation is not configured on this server. The original was saved." : language === "ur" ? "اس سرور پر نام کا ترجمہ فعال نہیں۔ اصل نام محفوظ ہے۔" : "ترجمة الأسماء غير مهيأة في هذا الخادم؛ حُفظ الاسم الأصلي.")
+                    : (language === "en" ? "Translation attempt status is not available on this server. Review the saved names." : language === "ur" ? "اس سرور پر ترجمے کی حیثیت دستیاب نہیں؛ محفوظ نام چیک کریں۔" : "حالة محاولة الترجمة غير متاحة على هذا الخادم؛ راجع الأسماء المحفوظة.")}
+        </div>}
         <section className="executive-page-header">
           <div className="flex min-w-0 items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#D2AD61]/40 bg-[#D2AD61]/10 text-[#E6C982] shadow-[0_0_18px_rgba(210,173,97,0.06)]">
@@ -464,10 +536,10 @@ export default function Workers() {
             <div className="min-w-0">
               <ProductBrand compact />
 
-              <h1 className="executive-page-title">إدارة العمال</h1>
+              <h1 className="executive-page-title">{text("إدارة العمال", "Worker management", "کارکنوں کا انتظام")}</h1>
 
               <p className="executive-page-description">
-                إدارة البيانات الوظيفية وملفات العمال وحالاتهم التشغيلية.
+                {text("إدارة البيانات الوظيفية وملفات العمال وحالاتهم التشغيلية.", "Manage employment details, worker profiles and their status.", "ملازمت کی تفصیلات، کارکنوں کے پروفائل اور ان کی حالت کا انتظام کریں۔")}
               </p>
             </div>
           </div>
@@ -479,7 +551,7 @@ export default function Workers() {
               className="executive-button-primary gap-2 px-5"
             >
               <Plus className="h-4 w-4" />
-              إضافة عامل جديد
+              {text("إضافة عامل جديد", "Add worker", "کارکن شامل کریں")}
             </Button>
           )}
         </section>
@@ -487,16 +559,14 @@ export default function Workers() {
         {isSetup && canManage && (
           <Card>
             <CardHeader>
-              <CardTitle>إعداد العمال</CardTitle>
+              <CardTitle>{text("إعداد العمال", "Worker setup", "کارکنوں کی ترتیب")}</CardTitle>
               <CardDescription>
-                ارفع الأسماء أو أضف عاملًا، ثم حدد المجموعة لتعيين القسم
-                والمشرفين والساعات ويوم الراحة. يمكن تعديل الاستثناءات من بطاقة
-                العامل.
+                {text("ارفع الأسماء أو أضف عاملًا، ثم حدد المجموعة لتعيين القسم والمشرفين والساعات ويوم الراحة. يمكن تعديل الاستثناءات من بطاقة العامل.", "Upload names or add a worker, then select workers to assign departments, supervisors, hours and rest days. Exceptions can be changed in the worker profile.", "نام اپ لوڈ کریں یا کارکن شامل کریں، پھر شعبہ، سپروائزر، اوقات اور آرام کا دن مقرر کریں۔ استثنائی تبدیلیاں کارکن کے پروفائل میں کی جا سکتی ہیں۔")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <Button variant="outline" onClick={() => navigate("/settings")}>
-                العودة إلى التهيئة
+                {text("العودة إلى التهيئة", "Back to setup", "ترتیبات پر واپس جائیں")}
               </Button>
             </CardContent>
           </Card>
@@ -513,7 +583,7 @@ export default function Workers() {
             />
             {selectedIds.length > 0 && (
               <Button variant="ghost" onClick={() => setSelectedIds([])}>
-                إلغاء التحديد
+                {text("إلغاء التحديد", "Clear selection", "انتخاب ختم کریں")}
               </Button>
             )}
           </div>
@@ -523,14 +593,14 @@ export default function Workers() {
           <div className="executive-kpi executive-card--highlight">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="executive-kpi-label">{debouncedSearch ? "نتائج البحث" : "إجمالي العمال"}</p>
+                <p className="executive-kpi-label">{debouncedSearch ? text("نتائج البحث", "Search results", "تلاش کے نتائج") : text("إجمالي العمال", "Total workers", "کل کارکنان")}</p>
 
                 <p className="executive-kpi-value text-[#E6C982]">
                   {workersQuery.data?.total ?? 0}
                 </p>
 
                 <p className="mt-2 text-xs text-[#98A4B5]">
-                  {debouncedSearch ? "إجمالي العمال المطابقين للبحث" : "إجمالي السجلات في النظام"}
+                  {debouncedSearch ? text("إجمالي العمال المطابقين للبحث", "Total workers matching the search", "تلاش سے مماثل کل کارکن") : text("إجمالي السجلات في النظام", "Total records in the system", "سسٹم میں کل ریکارڈ")}
                 </p>
               </div>
 
@@ -543,12 +613,12 @@ export default function Workers() {
           <div className="executive-kpi">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="executive-kpi-label">العمال النشطون</p>
+                <p className="executive-kpi-label">{text("العمال النشطون", "Active workers", "فعال کارکن")}</p>
 
                 <p className="executive-kpi-value">{workerStatistics.active}</p>
 
                 <p className="mt-2 text-xs text-[#98A4B5]">
-                  ضمن النتائج المعروضة
+                  {text("ضمن النتائج المعروضة", "In displayed results", "دکھائے گئے نتائج میں")}
                 </p>
               </div>
 
@@ -561,14 +631,14 @@ export default function Workers() {
           <div className="executive-kpi">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="executive-kpi-label">في إجازة</p>
+                <p className="executive-kpi-label">{text("في إجازة", "On leave", "چھٹی پر")}</p>
 
                 <p className="executive-kpi-value text-[#F2B84B]">
                   {workerStatistics.onLeave}
                 </p>
 
                 <p className="mt-2 text-xs text-[#98A4B5]">
-                  ضمن النتائج المعروضة
+                  {text("ضمن النتائج المعروضة", "In displayed results", "دکھائے گئے نتائج میں")}
                 </p>
               </div>
 
@@ -581,14 +651,14 @@ export default function Workers() {
           <div className="executive-kpi">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="executive-kpi-label">منتهية خدمتهم</p>
+                <p className="executive-kpi-label">{text("منتهية خدمتهم", "Employment ended", "ملازمت ختم")}</p>
 
                 <p className="executive-kpi-value text-[#EF5B67]">
                   {workerStatistics.terminated}
                 </p>
 
                 <p className="mt-2 text-xs text-[#98A4B5]">
-                  ضمن النتائج المعروضة
+                  {text("ضمن النتائج المعروضة", "In displayed results", "دکھائے گئے نتائج میں")}
                 </p>
               </div>
 
@@ -608,7 +678,7 @@ export default function Workers() {
                 <Input
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="ابحث بالاسم أو الرقم الوظيفي أو رقم البصمة"
+                  placeholder={text("ابحث بالاسم أو الرقم الوظيفي أو رقم البصمة", "Search by name, employee or fingerprint ID", "نام، ملازم نمبر یا فنگر پرنٹ نمبر سے تلاش کریں")}
                   className={`${fieldClassName} pr-10`}
                 />
               </div>
@@ -616,7 +686,7 @@ export default function Workers() {
               <div className="flex items-center gap-2 text-xs text-[#98A4B5]">
                 <Fingerprint className="h-4 w-4 text-[#26B9D1]" />
 
-                <span>البحث يتم تلقائيًا أثناء الكتابة</span>
+                <span>{text("البحث يتم تلقائيًا أثناء الكتابة", "Search updates as you type", "لکھتے ہی تلاش تازہ ہوتی ہے")}</span>
               </div>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox
@@ -627,7 +697,7 @@ export default function Workers() {
                     setPage(1);
                   }}
                 />
-                إظهار المؤرشفين وغير النشطين
+                {text("إظهار المؤرشفين وغير النشطين", "Show archived and inactive workers", "محفوظ شدہ اور غیر فعال کارکن دکھائیں")}
               </label>
             </div>
           </CardContent>
@@ -638,16 +708,16 @@ export default function Workers() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="executive-section-title">
-                  قائمة العمال
+                  {text("قائمة العمال", "Workers", "کارکنوں کی فہرست")}
                 </CardTitle>
 
                 <CardDescription className="executive-section-description">
-                  عرض البيانات الأساسية والحالة الحالية لكل عامل.
+                  {text("عرض البيانات الأساسية والحالة الحالية لكل عامل.", "Basic details and current status for each worker.", "ہر کارکن کی بنیادی تفصیلات اور موجودہ حالت۔")}
                 </CardDescription>
               </div>
 
               <Badge variant="outline" className="status-info w-fit">
-                {workers.length} عامل معروض
+                {workers.length} {text("عامل معروض", "workers shown", "کارکن دکھائے گئے")}
               </Badge>
             </div>
           </CardHeader>
@@ -657,14 +727,14 @@ export default function Workers() {
               <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-[#98A4B5]">
                 <Loader2 className="h-7 w-7 animate-spin text-[#26B9D1]" />
 
-                <p className="text-sm">جارٍ تحميل بيانات العمال...</p>
+                <p className="text-sm">{text("جارٍ تحميل بيانات العمال...", "Loading workers...", "کارکنوں کی تفصیلات لوڈ ہو رہی ہیں...")}</p>
               </div>
             ) : workersQuery.isError ? (
               <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-4 text-center">
                 <UserX className="h-8 w-8 text-[#EF5B67]" />
 
                 <p className="font-semibold text-[#F5F7FA]">
-                  تعذر تحميل بيانات العمال
+                  {text("تعذر تحميل بيانات العمال", "Could not load workers", "کارکنوں کی تفصیلات لوڈ نہیں ہو سکیں")}
                 </p>
 
                 <p className="max-w-md text-sm text-[#98A4B5]">
@@ -677,7 +747,7 @@ export default function Workers() {
                   onClick={() => workersQuery.refetch()}
                   className="executive-button-secondary"
                 >
-                  إعادة المحاولة
+                  {text("إعادة المحاولة", "Try again", "دوبارہ کوشش کریں")}
                 </Button>
               </div>
             ) : (
@@ -688,7 +758,7 @@ export default function Workers() {
                       {canManage && (
                         <TableHead className="w-12">
                           <Checkbox
-                            aria-label="تحديد كل العمال المعروضين"
+                            aria-label={text("تحديد كل العمال المعروضين", "Select all displayed workers", "دکھائے گئے تمام کارکن منتخب کریں")}
                             checked={
                               !!workers.length &&
                               workers.every((worker) =>
@@ -705,23 +775,23 @@ export default function Workers() {
                           />
                         </TableHead>
                       )}
-                      <TableHead className="text-right">
-                        الرقم الوظيفي
+                      <TableHead className="text-start">
+                        {text("الرقم الوظيفي", "Employee ID", "ملازم نمبر")}
                       </TableHead>
 
-                      <TableHead className="text-right">اسم العامل</TableHead>
+                      <TableHead className="text-start">{text("اسم العامل", "Worker name", "کارکن کا نام")}</TableHead>
 
-                      <TableHead className="text-right">رقم البصمة</TableHead>
+                      <TableHead className="text-start">{text("رقم البصمة", "Fingerprint ID", "فنگر پرنٹ نمبر")}</TableHead>
 
-                      <TableHead className="text-right">القسم</TableHead>
+                      <TableHead className="text-start">{text("القسم", "Department", "شعبہ")}</TableHead>
 
-                      <TableHead className="text-right">
-                        تاريخ التعيين
+                      <TableHead className="text-start">
+                        {text("تاريخ التعيين", "Hire date", "ملازمت کی تاریخ")}
                       </TableHead>
 
-                      <TableHead className="text-right">الحالة</TableHead>
+                      <TableHead className="text-start">{text("الحالة", "Status", "حالت")}</TableHead>
 
-                      <TableHead className="text-right">الإجراءات</TableHead>
+                      <TableHead className="text-start">{text("الإجراءات", "Actions", "کارروائیاں")}</TableHead>
                     </TableRow>
                   </TableHeader>
 
@@ -731,7 +801,7 @@ export default function Workers() {
                         {canManage && (
                           <TableCell>
                             <Checkbox
-                              aria-label={`تحديد ${normalizeDigits(worker.nameAr)}`}
+                              aria-label={text(`تحديد ${normalizeDigits(localizedName(worker, language))}`, `Select ${normalizeDigits(localizedName(worker, language))}`, `${normalizeDigits(localizedName(worker, language))} منتخب کریں`)}
                               checked={selectedIds.includes(worker.id)}
                               onCheckedChange={(checked) =>
                                 setSelectedIds((current) =>
@@ -752,10 +822,10 @@ export default function Workers() {
                         <TableCell>
                           <div className="min-w-[170px]">
                             <p className="font-semibold text-[#F5F7FA]">
-                              {normalizeDigits(worker.nameAr)}
+                              {normalizeDigits(localizedName(worker, language))}
                             </p>
 
-                            {worker.nameEn && (
+                            {language === "ar" && worker.nameEn && (
                               <p
                                 dir="ltr"
                                 className="font-numeric mt-0.5 text-right text-[11px] uppercase text-[#98A4B5]"
@@ -772,7 +842,7 @@ export default function Workers() {
                               {normalizeDigits(worker.fingerprintId)}
                             </span>
                           ) : (
-                            <span className="text-[#6F7B8D]">غير مسجل</span>
+                            <span className="text-[#6F7B8D]">{text("غير مسجل", "Not set", "درج نہیں")}</span>
                           )}
                         </TableCell>
 
@@ -780,14 +850,14 @@ export default function Workers() {
                           <span className="text-[#C8D1DE]">
                             {normalizeDigits(
                               departmentNames.get(worker.departmentId) ??
-                                `قسم رقم ${worker.departmentId}`,
+                                text(`قسم رقم ${worker.departmentId}`, `Department ${worker.departmentId}`, `شعبہ ${worker.departmentId}`),
                             )}
                           </span>
                         </TableCell>
 
                         <TableCell>
                           <span className="font-numeric whitespace-nowrap text-[#C8D1DE]">
-                            {formatDate(worker.hireDate)}
+                            {formatDate(worker.hireDate, language)}
                           </span>
                         </TableCell>
 
@@ -796,7 +866,7 @@ export default function Workers() {
                             variant="outline"
                             className={getStatusClass(worker.status)}
                           >
-                            {statusLabels[worker.status]}
+                            {statusLabel(worker.status)}
                           </Badge>
                         </TableCell>
 
@@ -810,7 +880,7 @@ export default function Workers() {
                               className="h-9 gap-1.5 rounded-lg px-3 text-[#26B9D1] hover:bg-[#26B9D1]/10 hover:text-[#52CEE1]"
                             >
                               <Eye className="h-4 w-4" />
-                              البطاقة
+                              {text("البطاقة", "Profile", "پروفائل")}
                             </Button>
 
                             {canManage && (
@@ -822,7 +892,7 @@ export default function Workers() {
                                 className="h-9 gap-1.5 rounded-lg px-3 text-[#E6C982] hover:bg-[#D2AD61]/10 hover:text-[#E6C982]"
                               >
                                 <Edit className="h-4 w-4" />
-                                تعديل
+                                {text("تعديل", "Edit", "ترمیم")}
                               </Button>
                             )}
 
@@ -855,13 +925,13 @@ export default function Workers() {
 
                             <div>
                               <p className="font-semibold text-[#F5F7FA]">
-                                لا توجد بيانات
+                                {text("لا توجد بيانات", "No data", "کوئی ڈیٹا نہیں")}
                               </p>
 
                               <p className="mt-1 text-sm text-[#98A4B5]">
                                 {debouncedSearch
-                                  ? "لا توجد نتائج مطابقة لعبارة البحث."
-                                  : "لم تتم إضافة أي عامل حتى الآن."}
+                                  ? text("لا توجد نتائج مطابقة لعبارة البحث.", "No results match your search.", "تلاش سے کوئی نتیجہ نہیں ملا۔")
+                                  : text("لم تتم إضافة أي عامل حتى الآن.", "No workers have been added yet.", "ابھی تک کوئی کارکن شامل نہیں کیا گیا۔")}
                               </p>
                             </div>
 
@@ -872,7 +942,7 @@ export default function Workers() {
                                 className="executive-button-primary mt-2 gap-2"
                               >
                                 <Plus className="h-4 w-4" />
-                                إضافة أول عامل
+                                {text("إضافة أول عامل", "Add the first worker", "پہلا کارکن شامل کریں")}
                               </Button>
                             )}
                           </div>
@@ -888,7 +958,7 @@ export default function Workers() {
         {(workersQuery.data?.totalPages ?? 0) > 1 && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              صفحة {page} من {workersQuery.data?.totalPages}
+              {text(`صفحة ${page} من ${workersQuery.data?.totalPages}`, `Page ${page} of ${workersQuery.data?.totalPages}`, `صفحہ ${page} از ${workersQuery.data?.totalPages}`)}
             </p>
             <div className="flex gap-2">
               <Button
@@ -899,7 +969,7 @@ export default function Workers() {
                   setSelectedIds([]);
                 }}
               >
-                السابق
+                {text("السابق", "Previous", "پچھلا")}
               </Button>
               <Button
                 variant="outline"
@@ -909,7 +979,7 @@ export default function Workers() {
                   setSelectedIds([]);
                 }}
               >
-                التالي
+                {text("التالي", "Next", "اگلا")}
               </Button>
             </div>
           </div>
@@ -918,10 +988,10 @@ export default function Workers() {
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent
-          dir="rtl"
+          dir={language === "en" ? "ltr" : "rtl"}
           className="max-h-[90vh] overflow-y-auto border-[#263348] bg-[#111B2A] text-[#F5F7FA] sm:max-w-2xl"
         >
-          <DialogHeader className="border-b border-[#263348] pb-4 text-right">
+          <DialogHeader className="border-b border-[#263348] pb-4 text-start">
             <div className="flex items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[#D2AD61]/35 bg-[#D2AD61]/10 text-[#E6C982]">
                 {editingId ? (
@@ -933,23 +1003,23 @@ export default function Workers() {
 
               <div>
                 <DialogTitle className="text-xl font-bold text-[#F5F7FA]">
-                  {editingId ? "تعديل بيانات العامل" : "إضافة عامل جديد"}
+                  {editingId ? text("تعديل بيانات العامل", "Edit worker", "کارکن میں ترمیم") : text("إضافة عامل جديد", "Add worker", "کارکن شامل کریں")}
                 </DialogTitle>
 
                 <DialogDescription className="mt-1 text-sm leading-6 text-[#98A4B5]">
-                  أدخل البيانات الأساسية والوظيفية للعامل، ثم احفظ السجل.
+                  {text("أدخل البيانات الأساسية والوظيفية للعامل، ثم احفظ السجل.", "Enter the worker’s basic and employment details, then save.", "کارکن کی بنیادی اور ملازمت کی تفصیلات درج کریں، پھر محفوظ کریں۔")}
                 </DialogDescription>
               </div>
             </div>
           </DialogHeader>
 
           <form onSubmit={submit} className="grid gap-5 pt-2 md:grid-cols-2">
-            <Field label="الرقم الوظيفي" required>
+            <Field label={text("الرقم الوظيفي", "Employee ID", "ملازم نمبر")} required>
               <Input
                 required
                 disabled={Boolean(editingId)}
                 value={form.employeeId}
-                placeholder="مثال: W-12008"
+                placeholder={text("مثال: W-12008", "Example: W-12008", "مثال: W-12008")}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
@@ -960,10 +1030,10 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="رقم البصمة">
+            <Field label={text("رقم البصمة", "Fingerprint ID", "فنگر پرنٹ نمبر")}>
               <Input
                 value={form.fingerprintId}
-                placeholder="اختياري"
+                placeholder={text("اختياري", "Optional", "اختیاری")}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
@@ -974,11 +1044,11 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="الاسم بالعربية" required>
+            <Field label={text("الاسم بالعربية", "Name in Arabic", "عربی میں نام")} required>
               <Input
                 required
                 value={form.nameAr}
-                placeholder="الاسم الكامل"
+                placeholder={text("الاسم الكامل", "Full name", "پورا نام")}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
@@ -989,7 +1059,7 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="الاسم بالإنجليزية">
+            <Field label={text("الاسم بالإنجليزية", "Name in English", "انگریزی میں نام")}>
               <Input
                 dir="ltr"
                 value={form.nameEn}
@@ -1004,12 +1074,38 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="رقم هاتف العامل">
+            <Field label={language === "en" ? "Name in Urdu" : language === "ur" ? "اردو میں نام" : "الاسم بالأردية"}>
+              <Input
+                dir="rtl"
+                value={form.nameUr}
+                onChange={(event) => setForm((current) => ({ ...current, nameUr: event.target.value }))}
+                className={fieldClassName}
+              />
+            </Field>
+
+            <Field label={language === "en" ? "Source language for translation (optional)" : language === "ur" ? "ترجمے کی اصل زبان (اختیاری)" : "لغة الاسم الأصلية للترجمة (اختياري)"}>
+              <Select value={form.sourceLanguage || "none"} onValueChange={(value) => setForm(current => ({...current, sourceLanguage:value === "none" ? "" : value as "ar" | "en" | "ur"}))}>
+                <SelectTrigger className={selectTriggerClassName}><SelectValue /></SelectTrigger>
+                <SelectContent className={selectContentClassName}>
+                  <SelectItem value="none">{language === "en" ? "Do not translate automatically" : language === "ur" ? "خودکار ترجمہ نہ کریں" : "عدم الترجمة التلقائية"}</SelectItem>
+                  <SelectItem value="ar">العربية</SelectItem><SelectItem value="en">English</SelectItem><SelectItem value="ur">اردو</SelectItem>
+                </SelectContent>
+              </Select>
+              {form.sourceLanguage && translationStatus.data?.configuration !== "ready" && <p className="mt-1 text-xs text-amber-700" role="status">
+                {translationStatus.isError
+                  ? (language === "en" ? "Cannot check translation configuration." : language === "ur" ? "ترجمے کی ترتیبات چیک نہیں ہو سکیں۔" : "تعذر فحص إعداد الترجمة.")
+                  : translationStatus.data
+                    ? (language === "en" ? "Automatic translation is not configured on this server; the original name will be saved." : language === "ur" ? "اس سرور پر خودکار ترجمہ فعال نہیں؛ اصل نام محفوظ ہو گا۔" : "الترجمة التلقائية غير مهيأة في هذا الخادم؛ سيُحفظ الاسم الأصلي.")
+                    : (language === "en" ? "Checking translation configuration…" : language === "ur" ? "ترجمے کی ترتیبات چیک کی جا رہی ہیں…" : "جارٍ فحص إعداد الترجمة…")}
+              </p>}
+            </Field>
+
+            <Field label={text("رقم هاتف العامل", "Worker phone number", "کارکن کا فون نمبر")}>
               <Input
                 type="tel"
                 inputMode="tel"
                 autoComplete="tel"
-                aria-label="رقم هاتف العامل"
+                aria-label={text("رقم هاتف العامل", "Worker phone number", "کارکن کا فون نمبر")}
                 dir="ltr"
                 maxLength={32}
                 value={form.phoneNumber}
@@ -1023,14 +1119,14 @@ export default function Workers() {
                 className={`${fieldClassName} font-numeric text-left`}
               />
               <p className="text-xs text-[#98A4B5]">
-                اختياري؛ أدخل الرقم المحلي أو مع رمز الدولة.
+                {text("اختياري؛ أدخل الرقم المحلي أو مع رمز الدولة.", "Optional; enter a local number or include the country code.", "اختیاری؛ مقامی نمبر درج کریں یا ملک کا کوڈ شامل کریں۔")}
               </p>
             </Field>
 
-            <Field label="الجنسية">
+            <Field label={text("الجنسية", "Nationality", "قومیت")}>
               <Input
                 value={form.nationality}
-                placeholder="اختياري"
+                placeholder={text("اختياري", "Optional", "اختیاری")}
                 onChange={(event) =>
                   setForm((current) => ({
                     ...current,
@@ -1041,19 +1137,28 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="لغة التواصل">
+            <Field label={text("لغة التواصل", "Communication language", "رابطے کی زبان")}>
               <Select value={form.preferredLanguage} onValueChange={value => setForm(current => ({...current, preferredLanguage:value}))}>
                 <SelectTrigger className={selectTriggerClassName}><SelectValue /></SelectTrigger>
-                <SelectContent className={selectContentClassName}>{WORKER_LANGUAGES.map(language => <SelectItem key={language.code} value={language.code}>{language.label}</SelectItem>)}</SelectContent>
+                <SelectContent className={selectContentClassName}>{WORKER_LANGUAGES.map(option => {
+                  const names: Record<string, { en: string; ur: string }> = {
+                    ar: { en: "Arabic", ur: "عربی" }, en: { en: "English", ur: "انگریزی" }, ur: { en: "Urdu", ur: "اردو" },
+                    hi: { en: "Hindi", ur: "ہندی" }, bn: { en: "Bengali", ur: "بنگالی" }, ne: { en: "Nepali", ur: "نیپالی" }, fil: { en: "Filipino", ur: "فلپائنی" },
+                  };
+                  return <SelectItem key={option.code} value={option.code}>{language === "ar" ? option.label : names[option.code]?.[language] ?? option.label}</SelectItem>;
+                })}</SelectContent>
               </Select>
+              {!["ar", "en"].includes(form.preferredLanguage) && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300" role="status">
+                {text("لا يتوفر حاليًا قالب جدول واتساب بهذه اللغة؛ يحتاج العامل إلى قالب معتمد قبل إرسال جدوله بلغته.", "A WhatsApp schedule template is not yet available in this language; an approved template is needed before sending the schedule in this language.", "اس زبان میں واٹس ایپ شیڈول کا ٹیمپلیٹ فی الحال دستیاب نہیں؛ اس زبان میں شیڈول بھیجنے کے لیے منظور شدہ ٹیمپلیٹ درکار ہے۔")}
+              </p>}
             </Field>
-            <Field label="موقع العمل">
+            <Field label={text("موقع العمل", "Work location", "کام کی جگہ")}>
               <Select value={form.locationId || "none"} onValueChange={value => setForm(current => ({...current, locationId:value === "none" ? "" : value}))}>
-                <SelectTrigger className={selectTriggerClassName}><SelectValue placeholder="اختر الموقع" /></SelectTrigger>
-                <SelectContent className={selectContentClassName}><SelectItem value="none">غير محدد</SelectItem>{(referenceQuery.data?.locations ?? []).map(location => <SelectItem key={location.id} value={String(location.id)}>{normalizeDigits(location.nameAr)}</SelectItem>)}</SelectContent>
+                <SelectTrigger className={selectTriggerClassName}><SelectValue placeholder={text("اختر الموقع", "Select location", "مقام منتخب کریں")} /></SelectTrigger>
+                <SelectContent className={selectContentClassName}><SelectItem value="none">{text("غير محدد", "Not set", "مقرر نہیں")}</SelectItem>{(referenceQuery.data?.locations ?? []).map(location => <SelectItem key={location.id} value={String(location.id)}>{normalizeDigits(localizedName(location, language))}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
-            <Field label="تاريخ التعيين (اختياري)">
+            <Field label={text("تاريخ التعيين (اختياري)", "Hire date (optional)", "ملازمت کی تاریخ (اختیاری)")}>
               <Input
                 type="date"
                 value={form.hireDate}
@@ -1067,7 +1172,7 @@ export default function Workers() {
               />
             </Field>
 
-            <Field label="القسم" required>
+            <Field label={text("القسم", "Department", "شعبہ")} required>
               <Select
                 value={form.departmentId}
                 onValueChange={(value) =>
@@ -1079,16 +1184,16 @@ export default function Workers() {
                 }
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="اختر القسم" />
+                  <SelectValue placeholder={text("اختر القسم", "Select department", "شعبہ منتخب کریں")} />
                 </SelectTrigger>
 
-                <SelectContent className={selectContentClassName} dir="rtl">
+                <SelectContent className={selectContentClassName} dir={language === "en" ? "ltr" : "rtl"}>
                   {departments.map((department) => (
                     <SelectItem
                       key={department.id}
                       value={String(department.id)}
                     >
-                      {department.nameAr}
+                      {localizedName(department, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1097,19 +1202,19 @@ export default function Workers() {
                 !jobsQuery.isLoading &&
                 jobs.length === 0 && (
                   <p className="text-xs text-destructive">
-                    لا توجد مسميات لهذا القسم.{" "}
+                    {text("لا توجد مسميات لهذا القسم.", "There are no job titles for this department.", "اس شعبے کے لیے کوئی عہدہ نہیں۔")}{" "}
                     <button
                       type="button"
                       className="underline"
                       onClick={() => navigate("/settings?section=job-titles")}
                     >
-                      إضافة مسمى من التهيئة
+                      {text("إضافة مسمى من التهيئة", "Add a job title in setup", "ترتیبات میں عہدہ شامل کریں")}
                     </button>
                   </p>
                 )}
             </Field>
 
-            <Field label="المسمى الوظيفي" required>
+            <Field label={text("المسمى الوظيفي", "Job title", "عہدہ")} required>
               <Select
                 value={form.jobTitleId}
                 disabled={!form.departmentId}
@@ -1124,16 +1229,16 @@ export default function Workers() {
                   <SelectValue
                     placeholder={
                       form.departmentId
-                        ? "اختر المسمى الوظيفي"
-                        : "اختر القسم أولًا"
+                        ? text("اختر المسمى الوظيفي", "Select job title", "عہدہ منتخب کریں")
+                        : text("اختر القسم أولًا", "Select a department first", "پہلے شعبہ منتخب کریں")
                     }
                   />
                 </SelectTrigger>
 
-                <SelectContent className={selectContentClassName} dir="rtl">
+                <SelectContent className={selectContentClassName} dir={language === "en" ? "ltr" : "rtl"}>
                   {jobs.map((job) => (
                     <SelectItem key={job.id} value={String(job.id)}>
-                      {job.titleAr}
+                      {localizedJobTitle(job, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1143,8 +1248,8 @@ export default function Workers() {
             <Field
               label={
                 editingId
-                  ? "إضافة مشرف إلى العامل"
-                  : "المشرف (يمكن استكماله من البطاقة)"
+                  ? text("إضافة مشرف إلى العامل", "Add supervisor to worker", "کارکن کے لیے سپروائزر شامل کریں")
+                  : text("المشرف (يمكن استكماله من البطاقة)", "Supervisor (can be added later in the profile)", "سپروائزر (بعد میں پروفائل سے شامل کر سکتے ہیں)")
               }
             >
               <Select
@@ -1157,13 +1262,13 @@ export default function Workers() {
                 }
               >
                 <SelectTrigger className={selectTriggerClassName}>
-                  <SelectValue placeholder="اختر مشرفًا من الحسابات المعدّة" />
+                  <SelectValue placeholder={text("اختر مشرفًا من الحسابات المعدّة", "Select a supervisor from existing accounts", "موجودہ اکاؤنٹس سے سپروائزر منتخب کریں")} />
                 </SelectTrigger>
 
-                <SelectContent className={selectContentClassName} dir="rtl">
+                <SelectContent className={selectContentClassName} dir={language === "en" ? "ltr" : "rtl"}>
                   {supervisors.length === 0 ? (
                     <div className="px-2 py-1.5 text-xs text-gray-500">
-                      لا توجد حسابات مشرفين — أنشئها من التهيئة ← المشرفون
+                      {text("لا توجد حسابات مشرفين — أنشئها من التهيئة ← المشرفون", "No supervisor accounts — create one in Setup → Supervisors", "سپروائزر کا کوئی اکاؤنٹ نہیں — ترتیبات میں بنائیں")}
                     </div>
                   ) : (
                     supervisors.map((supervisor: any) => (
@@ -1179,7 +1284,7 @@ export default function Workers() {
               </Select>
             </Field>
 
-            <Field label="الحالة" required>
+            <Field label={text("الحالة", "Status", "حالت")} required>
               <Select
                 value={form.status}
                 onValueChange={(value) =>
@@ -1193,10 +1298,10 @@ export default function Workers() {
                   <SelectValue />
                 </SelectTrigger>
 
-                <SelectContent className={selectContentClassName} dir="rtl">
-                  {Object.entries(statusLabels).map(([value, label]) => (
+                <SelectContent className={selectContentClassName} dir={language === "en" ? "ltr" : "rtl"}>
+                  {Object.keys(statusLabels).map((value) => (
                     <SelectItem key={value} value={value}>
-                      {label}
+                      {statusLabel(value as WorkerStatus)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1211,7 +1316,7 @@ export default function Workers() {
               >
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
 
-                {editingId ? "حفظ التعديلات" : "إضافة العامل"}
+                {editingId ? text("حفظ التعديلات", "Save changes", "تبدیلیاں محفوظ کریں") : text("إضافة العامل", "Add worker", "کارکن شامل کریں")}
               </Button>
 
               <Button
@@ -1221,7 +1326,7 @@ export default function Workers() {
                 onClick={() => handleDialogOpenChange(false)}
                 className="executive-button-secondary min-w-24"
               >
-                إلغاء
+                {text("إلغاء", "Cancel", "منسوخ کریں")}
               </Button>
             </DialogFooter>
           </form>

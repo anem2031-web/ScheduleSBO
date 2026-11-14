@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ getDb: vi.fn(), claim: vi.fn(), save: vi.fn(), stage: vi.fn() }));
+const tracking = vi.hoisted(() => ({ beginDelivery: vi.fn().mockResolvedValue(123), acceptedDelivery: vi.fn().mockResolvedValue(undefined), failedDelivery: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../shared/db", () => ({ getDb: mocks.getDb }));
 vi.mock("./whatsapp-trial-state", () => ({ claimScheduleDelivery: mocks.claim, saveScheduleDelivery: mocks.save, stageScheduleDelivery: mocks.stage }));
+vi.mock('./whatsapp-delivery-tracking',()=>tracking);
 import { buildScheduleUpdates, buildWeeklyTemplateValues, deliverChangedSchedule, previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, sendTrialTemplate, sendTrialUpdate, trialConfig } from "./whatsapp-trial";
 
 afterEach(() => {
@@ -152,6 +154,28 @@ describe("Meta test-number delivery guard", () => {
     expect(payload.template.name).toBe("wardia_schedule_update");
     expect(payload.template.components[0].parameters.map((p: {text:string}) => p.text)).toEqual(["الاثنين", "09/11/2026", "تغيير وقت الدوام", "FROM 04:00 PM TO 01:00 AM", "—"]);
     expect(mocks.save).toHaveBeenLastCalledWith(1, 7, "test-claim", current, "idle");
+  });
+
+  it('never retries when Meta accepted but the tracking update fails', async()=>{
+    configure();vi.stubEnv('WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED','true');
+    const schedule=buildWeeklyTemplateValues({start:'2026-11-08',end:'2026-11-14',rows:[],leaves:[{start:'2026-11-08',end:'2026-11-14',kind:'annual'}]});
+    tracking.acceptedDelivery.mockRejectedValueOnce(new Error('database unavailable'));
+    const fetchMock=vi.fn().mockResolvedValue({ok:true,json:async()=>({messages:[{id:'wamid.test123'}]})});vi.stubGlobal('fetch',fetchMock);
+    const log=vi.spyOn(console,'error').mockImplementation(()=>{});
+    expect(await deliverChangedSchedule(1,7,'966570344919',schedule)).toBe('sent');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mocks.save).toHaveBeenLastCalledWith(1,7,'test-claim',schedule,'idle');
+    log.mockRestore();
+  });
+
+  it('does not contact Meta or claim an uncertain request when tracking cannot start',async()=>{
+    configure();vi.stubEnv('WHATSAPP_TRIAL_SCHEDULE_TEMPLATE_APPROVED','true');
+    const schedule=buildWeeklyTemplateValues({start:'2026-11-08',end:'2026-11-14',rows:[]});
+    tracking.beginDelivery.mockRejectedValueOnce(new Error('tracking unavailable'));
+    const fetchMock=vi.fn();vi.stubGlobal('fetch',fetchMock);
+    await expect(deliverChangedSchedule(1,7,'966570344919',schedule)).rejects.toThrow('tracking unavailable');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.save).toHaveBeenLastCalledWith(1,7,'test-claim',null,'idle');
   });
 
   it("does not resend unchanged schedules and flags uncertain requests for review", async () => {

@@ -1,6 +1,7 @@
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "../../../../server/routers";
 import { OPERATIONAL_DAY_START_MINUTES } from "@shared/operational-day";
+import type { Language } from "@/lib/i18n";
 
 export type OvertimeList = inferRouterOutputs<AppRouter>["overtime"]["list"];
 export type OvertimeCenter = {
@@ -82,23 +83,24 @@ export function clockLabel(value: string | null | undefined, isEnd = false) {
 export function clockRange(start: string | null, end: string | null) {
   return `${clockLabel(start)} — ${clockLabel(end, true)}`;
 }
-export function periodLabel(start: string | null) {
-  if (!start) return "فترة عمل";
+export function periodLabel(start: string | null, language: Language = "ar") {
+  if (!start) return language === "en" ? "Shift" : language === "ur" ? "شفٹ" : "فترة عمل";
   const minutes = Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5));
-  return minutes >= OPERATIONAL_DAY_START_MINUTES && minutes < 12 * 60
-    ? "صباحية"
-    : "مسائية";
+  const morning = minutes >= OPERATIONAL_DAY_START_MINUTES && minutes < 12 * 60;
+  return language === "en" ? (morning ? "Morning" : "Evening") : language === "ur" ? (morning ? "صبح" : "شام") : (morning ? "صباحية" : "مسائية");
 }
 export function durationParts(minutes: number) {
   const whole = Math.max(0, Math.round(minutes));
   return { hours: Math.floor(whole / 60), minutes: whole % 60 };
 }
-export function durationLabel(minutes: number) {
+export function durationLabel(minutes: number, language: Language = "ar") {
   const parts = durationParts(minutes);
+  if (language === "en") return `${parts.hours} h ${parts.minutes} min`;
+  if (language === "ur") return `${parts.hours} گھنٹے ${parts.minutes} منٹ`;
   return `${parts.hours} ساعة و${parts.minutes} دقيقة`;
 }
-export function dayLabel(workDate: string) {
-  return new Intl.DateTimeFormat("ar-SA-u-ca-gregory-nu-latn", {
+export function dayLabel(workDate: string, language: Language = "ar") {
+  return new Intl.DateTimeFormat(language === "en" ? "en-US" : language === "ur" ? "ur-PK-u-nu-latn" : "ar-SA-u-ca-gregory-nu-latn", {
     weekday: "long",
     timeZone: "UTC",
   }).format(new Date(`${workDate}T12:00:00Z`));
@@ -114,16 +116,17 @@ export function monthRange(day: string) {
       .slice(0, 10),
   };
 }
-export function statusLabel(row: OvertimeRow) {
-  if (row.status === "approved") return "معتمد نهائيًا";
+export function statusLabel(row: OvertimeRow, language: Language = "ar") {
+  const label = (ar: string, en: string, ur: string) => language === "en" ? en : language === "ur" ? ur : ar;
+  if (row.status === "approved") return label("معتمد نهائيًا", "Finally approved", "حتمی منظور شدہ");
   if (row.status === "rejected")
     return row.reviewStatus === "rejected"
-      ? "رفض المشرف"
-      : "رفض الشؤون الإدارية";
-  if (row.reopened) return "بانتظار إعادة قرار الشؤون";
+      ? label("رفض المشرف", "Rejected by supervisor", "سپروائزر نے مسترد کیا")
+      : label("رفض الشؤون الإدارية", "Rejected by administration", "انتظامیہ نے مسترد کیا");
+  if (row.reopened) return label("بانتظار إعادة قرار الشؤون", "Awaiting new administrative decision", "انتظامیہ کے نئے فیصلے کا انتظار");
   return row.reviewStatus === "approved"
-    ? "بانتظار الشؤون الإدارية"
-    : "بانتظار المشرف";
+    ? label("بانتظار الشؤون الإدارية", "Awaiting administration", "انتظامیہ کا انتظار")
+    : label("بانتظار المشرف", "Awaiting supervisor", "سپروائزر کا انتظار");
 }
 export function rowNeedsAction(row: OvertimeRow) {
   return row.canReview || row.canDecide || row.canReopen || row.canSubmit;

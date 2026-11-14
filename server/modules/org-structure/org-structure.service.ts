@@ -323,6 +323,7 @@ export async function updateDepartment(input: {
   departmentId: number;
   nameAr?: string;
   nameEn?: string;
+  nameUr?: string;
   isActive?: boolean;
   updatedBy: number;
 }) {
@@ -337,6 +338,8 @@ export async function updateDepartment(input: {
     nameAr: input.nameAr?.trim() || department.nameAr,
     nameEn:
       input.nameEn !== undefined ? input.nameEn?.trim() : department.nameEn,
+    nameUr:
+      input.nameUr !== undefined ? input.nameUr?.trim() : department.nameUr,
     isActive: input.isActive ?? department.isActive,
   });
   await createAuditLog(

@@ -55,6 +55,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { WeeklyBoard } from "@/components/schedules/WeeklyBoard";
 import { formatDateTime } from "@shared/display-format";
 import { permits } from "@shared/access-control";
+import { useLanguage } from "@/lib/i18n";
 
 /**
  * صفحة إدارة الجداول (S2/S3)
@@ -114,6 +115,8 @@ function minutesToHours(min: number): string {
 
 export default function Schedules() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => ({ ar, en, ur })[language];
   const role = user?.role ?? "";
   const canCreate = permits(user?.permissions ?? [], "schedule:create");
   const canApprove = permits(user?.permissions ?? [], "schedule:approve");
@@ -121,30 +124,29 @@ export default function Schedules() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6" dir="rtl">
+      <div className="space-y-6" dir={language === "en" ? "ltr" : "rtl"}>
         <WeeklyBoard />
         {canCreate && (
           <details className="rounded-xl border bg-background p-4">
             <summary className="cursor-pointer text-sm font-medium">
-              إدارة متقدمة للجداول والورديات
+              {text("إدارة متقدمة للجداول والورديات", "Advanced schedule and shift management", "شیڈول اور شفٹوں کا جدید انتظام")}
             </summary>
             <p className="my-3 text-xs text-muted-foreground">
-              للإدارة عند الحاجة إلى إدارة الفترات أو القوالب القديمة. إعداد
-              الأسبوع المعتاد يتم من الجدول أعلاه.
+              {text("للإدارة عند الحاجة إلى إدارة الفترات أو القوالب القديمة. إعداد الأسبوع المعتاد يتم من الجدول أعلاه.", "For administration when managing periods or legacy templates. Prepare the normal week in the schedule above.", "مدتوں یا پرانے ٹیمپلیٹس کے انتظام کے لیے۔ معمول کا ہفتہ اوپر جدول میں تیار کریں۔")}
             </p>
             <Tabs defaultValue="periods" className="w-full">
               <TabsList>
                 <TabsTrigger value="periods" className="gap-2">
                   <CalendarDays className="h-4 w-4" />
-                  فترات الجداول
+                  {text("فترات الجداول", "Schedule periods", "شیڈول کی مدتیں")}
                 </TabsTrigger>
                 <TabsTrigger value="shifts" className="gap-2">
                   <Clock className="h-4 w-4" />
-                  الورديات
+                  {text("الورديات", "Shifts", "شفٹیں")}
                 </TabsTrigger>
                 <TabsTrigger value="assignments" className="gap-2">
                   <Users className="h-4 w-4" />
-                  التكليفات
+                  {text("التكليفات", "Assignments", "ذمہ داریاں")}
                 </TabsTrigger>
               </TabsList>
 

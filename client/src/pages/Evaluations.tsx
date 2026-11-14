@@ -1,4 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { useLanguage } from "@/lib/i18n";
+import { demoPageText } from "@/lib/demo-pages-text";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,6 +13,8 @@ import { Star, Plus, Edit, Check } from "lucide-react";
  * إدارة تقييمات الأداء اليومية والأسبوعية والشهرية
  */
 export default function Evaluations() {
+  const { language } = useLanguage();
+  const tr = (value: string) => demoPageText(value, language);
   // بيانات تجريبية
   const evaluations = [
     {
@@ -77,25 +81,26 @@ export default function Evaluations() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-6" dir={language === "en" ? "ltr" : "rtl"}>
+        <p role="note" className="rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">{tr("عرض توضيحي: البيانات والأزرار في هذه الصفحة تجريبية وليست بيانات تشغيلية.")}</p>
         {/* رأس الصفحة */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">التقييمات</h1>
-            <p className="text-gray-600 mt-1">إدارة تقييمات الأداء والتطور الوظيفي</p>
+            <h1 className="text-3xl font-bold text-gray-900">{tr("التقييمات")}</h1>
+            <p className="text-gray-600 mt-1">{tr("إدارة تقييمات الأداء والتطور الوظيفي")}</p>
           </div>
           <Button className="gap-2">
             <Plus className="w-4 h-4" />
-            إضافة تقييم جديد
+            {tr("إضافة تقييم جديد")}
           </Button>
         </div>
 
         {/* التبويبات */}
         <Tabs defaultValue="daily" className="w-full">
           <TabsList>
-            <TabsTrigger value="daily">تقييمات يومية</TabsTrigger>
-            <TabsTrigger value="weekly">تقييمات أسبوعية</TabsTrigger>
-            <TabsTrigger value="monthly">تقييمات شهرية</TabsTrigger>
+            <TabsTrigger value="daily">{tr("تقييمات يومية")}</TabsTrigger>
+            <TabsTrigger value="weekly">{tr("تقييمات أسبوعية")}</TabsTrigger>
+            <TabsTrigger value="monthly">{tr("تقييمات شهرية")}</TabsTrigger>
           </TabsList>
 
           {/* التقييمات اليومية */}
@@ -104,7 +109,7 @@ export default function Evaluations() {
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <p className="text-sm text-gray-600">متوسط التقييم</p>
+                    <p className="text-sm text-gray-600">{tr("متوسط التقييم")}</p>
                     <p className="text-3xl font-bold mt-2">4.2</p>
                   </div>
                 </CardContent>
@@ -112,7 +117,7 @@ export default function Evaluations() {
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <p className="text-sm text-gray-600">عدد التقييمات</p>
+                    <p className="text-sm text-gray-600">{tr("عدد التقييمات")}</p>
                     <p className="text-3xl font-bold mt-2">47</p>
                   </div>
                 </CardContent>
@@ -120,7 +125,7 @@ export default function Evaluations() {
               <Card>
                 <CardContent className="pt-6">
                   <div className="text-center">
-                    <p className="text-sm text-gray-600">المعتمدة</p>
+                    <p className="text-sm text-gray-600">{tr("المعتمدة")}</p>
                     <p className="text-3xl font-bold mt-2">42</p>
                   </div>
                 </CardContent>
@@ -130,51 +135,51 @@ export default function Evaluations() {
             {/* جدول التقييمات */}
             <Card>
               <CardHeader>
-                <CardTitle>التقييمات اليومية</CardTitle>
-                <CardDescription>قائمة التقييمات المسجلة اليوم</CardDescription>
+                <CardTitle>{tr("التقييمات اليومية")}</CardTitle>
+                <CardDescription>{tr("قائمة التقييمات المسجلة اليوم")}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>الرقم الوظيفي</TableHead>
-                        <TableHead>الاسم</TableHead>
-                        <TableHead>الدرجة</TableHead>
-                        <TableHead>المقيّم</TableHead>
-                        <TableHead>التاريخ</TableHead>
-                        <TableHead>الحالة</TableHead>
-                        <TableHead>الإجراءات</TableHead>
+                        <TableHead>{tr("الرقم الوظيفي")}</TableHead>
+                        <TableHead>{tr("الاسم")}</TableHead>
+                        <TableHead>{tr("الدرجة")}</TableHead>
+                        <TableHead>{tr("المقيّم")}</TableHead>
+                        <TableHead>{tr("التاريخ")}</TableHead>
+                        <TableHead>{tr("الحالة")}</TableHead>
+                        <TableHead>{tr("الإجراءات")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {evaluations.map((eval_) => (
                         <TableRow key={eval_.id}>
                           <TableCell className="font-medium">{eval_.employeeId}</TableCell>
-                          <TableCell>{eval_.name}</TableCell>
+                          <TableCell>{tr(eval_.name)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               {renderStars(eval_.score)}
                               <span className="text-sm">{eval_.score}</span>
                             </div>
                           </TableCell>
-                          <TableCell>{eval_.reviewer}</TableCell>
+                          <TableCell>{tr(eval_.reviewer)}</TableCell>
                           <TableCell>{eval_.date}</TableCell>
                           <TableCell>
                             <Badge className={getStatusColor(eval_.status)}>
-                              {eval_.status}
+                              {tr(eval_.status)}
                             </Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
                               <Button variant="ghost" size="sm" className="gap-1">
                                 <Edit className="w-4 h-4" />
-                                تعديل
+                                {tr("تعديل")}
                               </Button>
                               {eval_.status === "معلق" && (
                                 <Button variant="ghost" size="sm" className="gap-1 text-green-600">
                                   <Check className="w-4 h-4" />
-                                  اعتماد
+                                  {tr("اعتماد")}
                                 </Button>
                               )}
                             </div>
@@ -192,10 +197,10 @@ export default function Evaluations() {
           <TabsContent value="weekly">
             <Card>
               <CardHeader>
-                <CardTitle>التقييمات الأسبوعية</CardTitle>
+                <CardTitle>{tr("التقييمات الأسبوعية")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-600">سيتم عرض التقييمات الأسبوعية هنا</p>
+                <p className="text-gray-600">{tr("سيتم عرض التقييمات الأسبوعية هنا")}</p>
               </CardContent>
             </Card>
           </TabsContent>
@@ -204,10 +209,10 @@ export default function Evaluations() {
           <TabsContent value="monthly">
             <Card>
               <CardHeader>
-                <CardTitle>التقييمات الشهرية</CardTitle>
+                <CardTitle>{tr("التقييمات الشهرية")}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-600">سيتم عرض التقييمات الشهرية هنا</p>
+                <p className="text-gray-600">{tr("سيتم عرض التقييمات الشهرية هنا")}</p>
               </CardContent>
             </Card>
           </TabsContent>

@@ -28,6 +28,8 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { riyadhDateKey } from "@/lib/operational-date";
 import { normalizeDigits } from "@shared/display-format";
+import { useLanguage } from "@/lib/i18n";
+import { localizedName } from "@/lib/localized-data";
 import { permits } from "@shared/access-control";
 import { toast } from "sonner";
 
@@ -41,6 +43,13 @@ function initialWorkerId() {
 }
 
 export default function Overtime() {
+  const { language } = useLanguage();
+  const text = (ar: string, en: string, ur: string) => language === "en" ? en : language === "ur" ? ur : ar;
+  const filterNames: Record<OvertimeFilter, [string, string]> = {
+    all: ["All statuses", "تمام حیثیتیں"], actionable: ["Needs your action", "آپ کی کارروائی درکار"],
+    supervisor: ["Awaiting supervisor", "سپروائزر کا انتظار"], hr: ["Awaiting administration", "انتظامیہ کا انتظار"],
+    approved: ["Finally approved", "حتمی منظور شدہ"], rejected: ["Rejected", "مسترد"], reopened: ["Reopened for administration", "انتظامیہ کے لیے دوبارہ کھولا گیا"],
+  };
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const canRead = permits(user?.permissions ?? [], "overtime:read");
@@ -75,7 +84,7 @@ export default function Overtime() {
       utils.operations.invalidate(),
       utils.attendance.invalidate(),
     ]);
-    toast.success("تم حفظ إجراء العمل الإضافي");
+    toast.success(text("تم حفظ إجراء العمل الإضافي", "Overtime action saved", "اوور ٹائم کارروائی محفوظ کر لی گئی"));
   };
   const error = (failure: { message: string }) =>
     toast.error(normalizeDigits(failure.message));
@@ -180,13 +189,12 @@ export default function Overtime() {
   };
   return (
     <DashboardLayout>
-      <div dir="rtl" className="space-y-5">
+      <div dir={language === "en" ? "ltr" : "rtl"} className="space-y-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">العمل الإضافي</h1>
+            <h1 className="text-2xl font-bold">{text("العمل الإضافي", "Overtime", "اوور ٹائم")}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              مراجعة الزيادات المخططة والفعلية واعتمادها حسب العامل والفترة
-              ومركز التكلفة.
+              {text("مراجعة الزيادات المخططة والفعلية واعتمادها حسب العامل والفترة ومركز التكلفة.", "Review and approve planned and actual overtime by worker, shift and cost center.", "ملازم، شفٹ اور لاگت مرکز کے لحاظ سے منصوبہ بند اور حقیقی اوور ٹائم کا جائزہ اور منظوری۔")}
             </p>
           </div>
           {canRead && (
@@ -199,12 +207,12 @@ export default function Overtime() {
                 <RefreshCw
                   className={`ml-2 h-4 w-4 ${query.isFetching ? "animate-spin" : ""}`}
                 />
-                تحديث
+                {text("تحديث", "Refresh", "تازہ کریں")}
               </Button>
               {query.data?.canCreate && (
                 <Button disabled={busy} onClick={() => setCreateOpen(true)}>
                   <Plus className="ml-2 h-4 w-4" />
-                  طلب زيادة مخططة
+                  {text("طلب زيادة مخططة", "Request planned overtime", "منصوبہ بند اوور ٹائم کی درخواست")}
                 </Button>
               )}
             </div>
@@ -212,7 +220,7 @@ export default function Overtime() {
         </div>
         {!canRead ? (
           <p className="rounded-xl border p-6 text-sm">
-            هذه الصفحة غير متاحة لصلاحيات حسابك.
+            {text("هذه الصفحة غير متاحة لصلاحيات حسابك.", "Your account cannot access this page.", "آپ کے اکاؤنٹ کو اس صفحے تک رسائی حاصل نہیں۔")}
           </p>
         ) : (
           <>
@@ -222,7 +230,7 @@ export default function Overtime() {
                 variant={status === "all" ? "default" : "outline"}
                 onClick={() => setStatus("all")}
               >
-                جميع الطلبات{" "}
+                {text("جميع الطلبات", "All requests", "تمام درخواستیں")}{" "}
                 <span className="mr-2 tabular-nums">{rows.length}</span>
               </Button>
               <Button
@@ -230,7 +238,7 @@ export default function Overtime() {
                 variant={status === "actionable" ? "default" : "outline"}
                 onClick={() => setStatus("actionable")}
               >
-                تحتاج إجراء منك{" "}
+                {text("تحتاج إجراء منك", "Needs your action", "آپ کی کارروائی درکار")}{" "}
                 <span className="mr-2 tabular-nums">{actionableCount}</span>
               </Button>
               {workerId && (
@@ -242,13 +250,13 @@ export default function Overtime() {
                     navigate("/overtime");
                   }}
                 >
-                  عرض جميع العمال
+                  {text("عرض جميع العمال", "Show all workers", "تمام ملازمین دکھائیں")}
                 </Button>
               )}
             </div>
             <div className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-2 xl:grid-cols-5">
               <div className="space-y-2">
-                <Label htmlFor="overtime-from">من تاريخ</Label>
+                <Label htmlFor="overtime-from">{text("من تاريخ", "From date", "تاریخ سے")}</Label>
                 <Input
                   id="overtime-from"
                   type="date"
@@ -257,7 +265,7 @@ export default function Overtime() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="overtime-to">إلى تاريخ</Label>
+                <Label htmlFor="overtime-to">{text("إلى تاريخ", "To date", "تاریخ تک")}</Label>
                 <Input
                   id="overtime-to"
                   type="date"
@@ -266,33 +274,33 @@ export default function Overtime() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="overtime-search">العامل</Label>
+                <Label htmlFor="overtime-search">{text("العامل", "Worker", "ملازم")}</Label>
                 <Input
                   id="overtime-search"
                   type="search"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="اسم العامل أو رقمه"
+                  placeholder={text("اسم العامل أو رقمه", "Worker name or number", "ملازم کا نام یا نمبر")}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="overtime-center">مركز التكلفة</Label>
+                <Label htmlFor="overtime-center">{text("مركز التكلفة", "Cost center", "لاگت مرکز")}</Label>
                 <select
                   id="overtime-center"
                   className={selectClass}
                   value={centerId}
                   onChange={(event) => setCenterId(event.target.value)}
                 >
-                  <option value="">جميع المراكز</option>
+                  <option value="">{text("جميع المراكز", "All centers", "تمام مراکز")}</option>
                   {centers.map((center) => (
                     <option key={center.id} value={center.id}>
-                      {normalizeDigits(center.nameAr)}
+                      {normalizeDigits(localizedName(center, language))}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="overtime-status">الحالة</Label>
+                <Label htmlFor="overtime-status">{text("الحالة", "Status", "حیثیت")}</Label>
                 <select
                   id="overtime-status"
                   className={selectClass}
@@ -303,7 +311,7 @@ export default function Overtime() {
                 >
                   {overtimeFilters.map((filter) => (
                     <option key={filter.value} value={filter.value}>
-                      {filter.label}
+                      {text(filter.label, ...filterNames[filter.value])}
                     </option>
                   ))}
                 </select>
@@ -311,7 +319,7 @@ export default function Overtime() {
             </div>
             {!validRange && (
               <p role="alert" className="text-sm text-destructive">
-                اختر تاريخ بداية ونهاية صحيحين، لمدة لا تتجاوز 93 يومًا.
+                {text("اختر تاريخ بداية ونهاية صحيحين، لمدة لا تتجاوز 93 يومًا.", "Choose valid start and end dates within 93 days.", "93 دن کے اندر درست آغاز اور اختتامی تاریخ منتخب کریں۔")}
               </p>
             )}
             {query.isError && (
@@ -330,24 +338,23 @@ export default function Overtime() {
             />
             <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
               <p>
-                كل صف لزيادة واحدة في فترة ومركز محددين · (+1) اليوم التالي ·
-                ساعة 1 ودقيقة 30 = مدة 01:30.
+                {text("كل صف لزيادة واحدة في فترة ومركز محددين · (+1) اليوم التالي · ساعة 1 ودقيقة 30 = مدة 01:30.", "Each row is one overtime request for a shift and center · (+1) means the next day · 1 hour 30 minutes = 01:30.", "ہر قطار ایک شفٹ اور مرکز کے اضافی وقت کی ہے · (+1) اگلا دن · 1 گھنٹہ 30 منٹ = 01:30۔")}
               </p>
               <p>
-                إجمالي المعتمد ضمن الفلاتر:{" "}
+                {text("إجمالي المعتمد ضمن الفلاتر:", "Approved total for selected filters:", "منتخب فلٹرز میں منظور شدہ کل:")}{" "}
                 <span className="font-semibold text-foreground">
-                  {durationLabel(approvedMinutes)}
+                  {durationLabel(approvedMinutes, language)}
                 </span>
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-muted-foreground">
-                عرض{" "}
+                {text("عرض", "Showing", "دکھائے جا رہے ہیں")}{" "}
                 {matching.length
                   ? (activePage - 1) * OVERTIME_PAGE_SIZE + 1
                   : 0}
-                –{Math.min(activePage * OVERTIME_PAGE_SIZE, matching.length)} من{" "}
-                {matching.length} · {OVERTIME_PAGE_SIZE} صفًا لكل صفحة
+                –{Math.min(activePage * OVERTIME_PAGE_SIZE, matching.length)} {text("من", "of", "از")}{" "}
+                {matching.length} · {OVERTIME_PAGE_SIZE} {text("صفًا لكل صفحة", "rows per page", "قطاریں فی صفحہ")}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -357,7 +364,7 @@ export default function Overtime() {
                   onClick={() => setPage(activePage - 1)}
                 >
                   <ChevronRight className="ml-1 h-4 w-4" />
-                  السابق
+                  {text("السابق", "Previous", "پچھلا")}
                 </Button>
                 <span className="px-2 text-sm tabular-nums">
                   {activePage} / {totalPages}
@@ -368,7 +375,7 @@ export default function Overtime() {
                   disabled={activePage >= totalPages}
                   onClick={() => setPage(activePage + 1)}
                 >
-                  التالي
+                  {text("التالي", "Next", "اگلا")}
                   <ChevronLeft className="mr-1 h-4 w-4" />
                 </Button>
               </div>

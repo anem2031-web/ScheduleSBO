@@ -30,6 +30,7 @@ import * as workerCardService from "./worker-card.service";
 import * as weeklyBoardService from "./weekly-board.service";
 import { previewTrialForPublishedPeriod, sendTrialForPublishedPeriod, sendTrialProbe, trialConfig } from "./whatsapp-trial";
 import { listScheduleDeliveryReviews, resolveScheduleDeliveryReview } from "./whatsapp-trial-state";
+import { getWhatsAppDeliveryReport } from './whatsapp-delivery-report';
 import * as workerScope from "./worker-scope";
 import * as assignmentRepository from "./assignments.repository";
 import { ScheduleError } from "./schedules.service";
@@ -117,6 +118,17 @@ const dateStr = z
 const timeStr = z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, "صيغة الوقت HH:MM");
 
 export const schedulesRouter = router({
+  getWhatsAppDeliveryReport: protectedProcedure.input(z.object({
+    weekStart:dateStr.optional(), dateFrom:dateStr.optional(),dateTo:dateStr.optional(),search:z.string().max(100).optional(),
+    status:z.enum(['pending','sent','delivered','read','failed','unknown']).optional(),kind:z.enum(['weekly','update']).optional(),
+    branchId:z.number().int().positive().optional(),locationId:z.number().int().positive().optional(),departmentId:z.number().int().positive().optional(),supervisorId:z.number().int().positive().optional(),
+    limit:z.number().int().min(1).max(100).default(32),offset:z.number().int().min(0).max(1000000).default(0),
+  }).refine(v=>!v.dateFrom||!v.dateTo||v.dateFrom<=v.dateTo,{message:'تاريخ البداية يجب أن يسبق النهاية'}))
+  .query(async ({ctx,input})=>{
+    if(ctx.user.role!=='admin' && (ctx.user.role!=='hr_admin' || ctx.user.accessScope!=null || !rbac.hasPermission(ctx.user,rbac.SCHEDULE_APPROVE))) throw new TRPCError({code:'FORBIDDEN',message:'متابعة الرسائل متاحة للإدارة المخولة بجميع المراكز'});
+    try { return await getWhatsAppDeliveryReport(input); }
+    catch { console.error('Unable to query WhatsApp delivery report'); throw new TRPCError({code:'INTERNAL_SERVER_ERROR',message:'تعذر تحميل متابعة رسائل واتساب. تحقق من إعداد قاعدة البيانات أو حاول لاحقًا.'}); }
+  }),
   getWhatsAppTrialStatus: protectedProcedure.query(({ ctx }) => {
     requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية عرض إعدادات تجربة واتساب");
     const config = trialConfig();
@@ -126,6 +138,8 @@ export const schedulesRouter = router({
       targets: Array.from(config.recipients).map((number, index) => ({ index, ending: number.slice(-4) })),
       scheduleTemplateApproved: !!config.approvedTemplate,
       updateTemplateApproved: !!config.approvedUpdateTemplate,
+      enTemplatesApproved: config.enTemplatesApproved,
+      englishFormat: config.englishFormat,
       autoSend: config.autoSend,
       connectionTest: config.connectionTest,
       webhookReady: !!process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN && !!process.env.WHATSAPP_META_APP_SECRET,
@@ -155,7 +169,7 @@ export const schedulesRouter = router({
       }
     }),
   sendPublishedWhatsAppTrial: protectedProcedure
-    .input(z.object({ periodId: z.number().int().positive() }))
+    .input(z.object({ periodId: z.number().int().positive(), format: z.enum(["text", "image", "media"]).optional(), forceWeekly: z.boolean().optional() }))
     .mutation(async ({ ctx, input }) => {
       requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية إرسال جدول التجربة المعتمد");
       // This sends the whole period, so a destination-scoped account must not
@@ -165,18 +179,23 @@ export const schedulesRouter = router({
       if (period.status !== "published")
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "اعتمد الأسبوع قبل إرسال جدوله" });
       try {
-        return await sendTrialForPublishedPeriod(input.periodId, ctx.user);
+        await createAuditLog("whatsapp_trial_delivery", input.periodId, "update", ctx.user.id, undefined,
+          { phase: "attempt", format: input.format ?? "media", forceWeekly: input.forceWeekly ?? false });
+        const result = await sendTrialForPublishedPeriod(input.periodId, ctx.user, input.format, input.forceWeekly);
+        await createAuditLog("whatsapp_trial_delivery", input.periodId, "update", ctx.user.id, undefined,
+          { phase: "result", format: input.format ?? "media", forceWeekly: input.forceWeekly ?? false, eligible: result.eligible, sent: result.sent, failed: result.failed });
+        return result;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذر إرسال جدول التجربة" });
       }
     }),
   getPublishedWhatsAppTrialPreview: protectedProcedure
-    .input(z.object({ periodId: z.number().int().positive() }))
+    .input(z.object({ periodId: z.number().int().positive(), format: z.enum(["text", "image", "media"]).optional() }))
     .query(async ({ ctx, input }) => {
       requirePerm(ctx.user, rbac.SCHEDULE_APPROVE, "ليس لديك صلاحية معاينة رسائل الجدول المعتمد");
       requireWhatsAppGlobalApprover(ctx.user);
       try {
-        return await previewTrialForPublishedPeriod(input.periodId);
+        return input.format ? await previewTrialForPublishedPeriod(input.periodId, input.format) : await previewTrialForPublishedPeriod(input.periodId);
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "تعذرت معاينة رسائل الجدول" });
       }

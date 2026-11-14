@@ -30,6 +30,12 @@ export const primaryNavigation = [
     roles: ["admin", "hr_admin", "supervisor", "modifier"],
   },
   {
+    key: "whatsappDelivery",
+    label: "متابعة رسائل واتساب",
+    path: "/whatsapp-delivery",
+    roles: ["admin", "hr_admin"],
+  },
+  {
     key: "overtime",
     label: "العمل الإضافي",
     path: "/overtime",
@@ -53,7 +59,7 @@ export function navigationForRole(role: string) {
     (item.roles as readonly string[]).includes(role),
   );
 }
-export function navigationForUser(user: { role: string; permissions?: string[] }) {
+export function navigationForUser(user: { role: string; permissions?: string[]; accessScope?: { costCenterIds: number[] } | null }) {
   const candidates = primaryNavigation.filter((item) =>
     (item.roles as readonly string[]).includes(user.role) ||
     (item.key === "overtime" && user.permissions !== undefined && permits(user.permissions, "overtime:read")),
@@ -65,6 +71,7 @@ export function navigationForUser(user: { role: string; permissions?: string[] }
       case "today": return true;
       case "workers": return any("workers:read");
       case "schedule": return any("schedule:read");
+      case "whatsappDelivery": return user.role === "hr_admin" && user.accessScope == null && any("schedule:approve");
       case "overtime": return any("overtime:read");
       case "reviews": return any("attendance:read", "attendance:approve", "leave:read");
       case "setup": return any("org_structure:read", "users:read", "workers:create");
