@@ -6,6 +6,7 @@ import { operationalClockMinutes } from "../../../shared/operational-day";
 import { getDb } from "../../shared/db";
 import { claimScheduleDelivery, saveScheduleDelivery, stageScheduleDelivery } from "./whatsapp-trial-state";
 import { acceptedDelivery, beginDelivery, failedDelivery } from './whatsapp-delivery-tracking';
+import { scheduleAcknowledgmentPayload } from "./whatsapp-acknowledgment";
 import { englishScheduleValues, englishUpdateValues, englishWeekdays, templateName, type ScheduleMessageFormat, type ScheduleMessageOptions } from "./whatsapp-template-formats";
 
 export type TrialSendReport = {
@@ -112,6 +113,40 @@ async function englishTemplateComponents(kind: "weekly" | "update", format: Sche
   return components;
 }
 
+async function scheduleTemplate(
+  config: ReturnType<typeof trialConfig>,
+  recipient: string,
+  kind: "weekly" | "update",
+  values: string[],
+  options: ScheduleMessageOptions,
+) {
+  const baseName = options.language === "en" ? templateName(kind, options.format)
+    : kind === "weekly" ? config.approvedTemplate : config.approvedUpdateTemplate;
+  const mappings = (process.env.WHATSAPP_ACKNOWLEDGMENT_TEMPLATES ?? "").split(",")
+    .map((entry) => entry.trim().split(":").map((name) => name.trim()));
+  const acknowledgmentTemplate = mappings.find(([base]) => base === baseName);
+  const components: Array<Record<string, unknown>> = [];
+  let name = baseName;
+  if (acknowledgmentTemplate) {
+    const [, approvedName = baseName] = acknowledgmentTemplate;
+    const secret = process.env.WHATSAPP_META_APP_SECRET;
+    if (acknowledgmentTemplate.length > 2 || !/^[a-z0-9_]{1,512}$/.test(approvedName) || !secret) {
+      throw new Error("تحقق من إعداد قالب تأكيد الاستلام وسر تطبيق Meta");
+    }
+    name = approvedName;
+    components.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: "0",
+      parameters: [{ type: "payload", payload: scheduleAcknowledgmentPayload(recipient, secret) }],
+    });
+  }
+  const content = options.language === "ar"
+    ? [{ type: "body", parameters: values.map((text) => ({ type: "text", text })) }]
+    : await englishTemplateComponents(kind, options.format, values, options.workerName, config.phoneId, config.token);
+  return { name, language: { code: options.language }, components: [...content, ...components] };
+}
+
 async function renderEnglishWeeklyPreview(values: string[], workerName: string): Promise<string> {
   const localized = englishScheduleValues(values);
   const { renderWeeklySchedulePng } = await import("./whatsapp-images");
@@ -196,11 +231,9 @@ export async function sendTrialUpdate(to: string, update: string[], options: Sch
   if (!config.enabled || !config.phoneId || !config.token || !config.recipients.has(to) || (options.language === "ar" ? !config.approvedUpdateTemplate : !config.enTemplatesApproved)) return false;
   if (!/^\d{8,20}$/.test(config.phoneId)) throw new Error("معرّف رقم واتساب غير صالح");
   if (update.length !== 5 || update.some((value) => !value.trim() || /[\r\n\t]/.test(value))) throw new Error("قالب التعديل يتطلب 5 قيم نصية غير فارغة");
-  const body=JSON.stringify({ messaging_product: "whatsapp", to, type: "template", template: {
-      name: options.language === "ar" ? config.approvedUpdateTemplate : templateName("update", options.format), language: { code: options.language },
-      components: options.language === "ar" ? [{ type: "body", parameters: update.map((text) => ({ type: "text", text })) }]
-        : await englishTemplateComponents("update", options.format, update, options.workerName, config.phoneId, config.token),
-    } });
+  const body = JSON.stringify({ messaging_product: "whatsapp", to, type: "template",
+    template: await scheduleTemplate(config, to, "update", update, options),
+  });
   onAttempt?.();
   const response = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phoneId}/messages`, {
     method: "POST", headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
@@ -280,17 +313,12 @@ export async function sendTrialTemplate(to: string, schedule?: string[], options
   if (schedule && (options.language === "ar" ? !config.approvedTemplate : !config.enTemplatesApproved)) return false;
   if (schedule && (schedule.length !== 21 || schedule.some((value) => !value.trim() || /[\r\n\t]/.test(value))))
     throw new Error("قالب الجدول يتطلب 21 قيمة نصية غير فارغة، كل قيمة في سطر واحد");
-  const useScheduleTemplate = !!schedule;
   const body=JSON.stringify({
       messaging_product: "whatsapp",
       to,
       type: "template",
-      template: useScheduleTemplate
-        ? {
-          name: options.language === "ar" ? config.approvedTemplate : templateName("weekly", options.format), language: { code: options.language },
-          components: options.language === "ar" ? [{ type: "body", parameters: schedule!.map((text) => ({ type: "text", text })) }]
-            : await englishTemplateComponents("weekly", options.format, schedule!, options.workerName, config.phoneId, config.token),
-        }
+      template: schedule
+        ? await scheduleTemplate(config, to, "weekly", schedule, options)
         : { name: "hello_world", language: { code: "en_US" } },
     });
   onAttempt?.();

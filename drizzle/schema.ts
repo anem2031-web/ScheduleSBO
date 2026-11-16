@@ -1185,7 +1185,7 @@ export const whatsappDeliveryMessages = mysqlTable("whatsapp_delivery_messages",
 export const whatsappDeliveryEvents = mysqlTable("whatsapp_delivery_events", {
   eventKey: varchar("event_key", { length: 64 }).primaryKey(),
   messageId: varchar("message_id", { length: 255 }).notNull(),
-  status: mysqlEnum("status", ["sent", "delivered", "read", "failed"]).notNull(),
+  status: mysqlEnum("status", ["sent", "delivered", "read", "failed", "acknowledged"]).notNull(),
   occurredAt: timestamp("occurred_at").notNull(),
   errorCode: varchar("error_code", { length: 40 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),

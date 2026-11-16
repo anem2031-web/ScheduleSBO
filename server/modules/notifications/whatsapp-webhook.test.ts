@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { scheduleAcknowledgmentPayload } from "../schedules/whatsapp-acknowledgment";
 const tracking=vi.hoisted(()=>({record:vi.fn()}));
 vi.mock('../schedules/whatsapp-delivery-tracking',async(importOriginal)=>({...(await importOriginal<typeof import('../schedules/whatsapp-delivery-tracking')>()),recordDeliveryEvents:tracking.record}));
 import { registerWhatsAppWebhook } from "./whatsapp-webhook";
@@ -33,12 +34,31 @@ describe("Meta webhook verification", () => {
       const valid = await fetch(base, { method: "POST", headers: { "Content-Type": "application/json", "x-hub-signature-256": signature }, body });
       expect(valid.status).toBe(200);
 
-      const eventBody=JSON.stringify({entry:[{changes:[{value:{metadata:{phone_number_id:'123456789012345'},statuses:[{id:'wamid.abc123',status:'delivered',timestamp:String(Math.floor(Date.now()/1000))}]}}]}]});
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const from = "966500000001";
+      const eventBody = JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{ changes: [{ field: "messages", value: {
+          metadata: { phone_number_id: "123456789012345" },
+          statuses: [{ id: "wamid.abc123", status: "delivered", timestamp }],
+          messages: [{
+            id: "wamid.inbound123",
+            from,
+            timestamp,
+            type: "button",
+            context: { id: "wamid.abc123" },
+            button: { payload: scheduleAcknowledgmentPayload(from, "test-app-secret") },
+          }],
+        } }] }],
+      });
       const eventSignature=`sha256=${createHmac('sha256','test-app-secret').update(eventBody).digest('hex')}`;
       tracking.record.mockResolvedValueOnce(undefined);
       const eventResponse=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json','x-hub-signature-256':eventSignature},body:eventBody});
       expect(eventResponse.status).toBe(200);
-      expect(tracking.record).toHaveBeenLastCalledWith([expect.objectContaining({messageId:'wamid.abc123',status:'delivered'})]);
+      expect(tracking.record).toHaveBeenLastCalledWith([
+        expect.objectContaining({ messageId: "wamid.abc123", status: "delivered" }),
+        { messageId: "wamid.abc123", status: "acknowledged", occurredAt: new Date(Number(timestamp) * 1000), errorCode: null },
+      ]);
       tracking.record.mockRejectedValueOnce(new Error('database unavailable'));
       const log=vi.spyOn(console,'error').mockImplementation(()=>{});
       const failed=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json','x-hub-signature-256':eventSignature},body:eventBody});

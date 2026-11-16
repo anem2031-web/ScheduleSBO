@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Express } from "express";
 import express from "express";
+import { parseScheduleAcknowledgments } from "../schedules/whatsapp-acknowledgment";
 import { parseDeliveryEvents, recordDeliveryEvents } from "../schedules/whatsapp-delivery-tracking";
 
 const path = "/api/webhooks/whatsapp";
@@ -40,11 +41,14 @@ export function registerWhatsAppWebhook(app: Express): void {
       const payload = JSON.parse(req.body.toString("utf8"));
       const phoneId=process.env.WHATSAPP_TRIAL_PHONE_NUMBER_ID?.trim();
       if (!phoneId) { res.sendStatus(503); return; }
-      await recordDeliveryEvents(parseDeliveryEvents(payload,phoneId));
+      await recordDeliveryEvents([
+        ...parseDeliveryEvents(payload, phoneId),
+        ...parseScheduleAcknowledgments(payload, phoneId, secret),
+      ]);
       res.sendStatus(200);
     } catch (error) {
       if(error instanceof SyntaxError) res.sendStatus(400);
-      else { console.error('Unable to persist WhatsApp status events'); res.sendStatus(503); }
+      else { console.error('Unable to persist WhatsApp events'); res.sendStatus(503); }
     }
   });
 }

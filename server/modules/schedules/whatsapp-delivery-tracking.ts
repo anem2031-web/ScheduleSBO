@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { whatsappDeliveryEvents, whatsappDeliveryMessages, whatsappDeliveryDestinations, shiftAssignments, workers, workerScheduleSettings, branches, supervisorAssignments } from '../../../drizzle/schema';
 import { getDb } from '../../shared/db';
 
-export type DeliveryEvent = { messageId: string; status: 'sent' | 'delivered' | 'read' | 'failed'; occurredAt: Date; errorCode: string | null };
+export type DeliveryEvent = { messageId: string; status: 'sent' | 'delivered' | 'read' | 'failed' | 'acknowledged'; occurredAt: Date; errorCode: string | null };
 /** Extract only safe, minimal status data. Unknown or malformed events are ignored. */
 export function parseDeliveryEvents(payload: any, phoneNumberId: string): DeliveryEvent[] {
   const result: DeliveryEvent[]=[];

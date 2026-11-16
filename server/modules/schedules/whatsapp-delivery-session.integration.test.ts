@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 const fixture=vi.hoisted(()=>({db:null as any}));
 vi.mock('../../shared/db',()=>({getDb:async()=>fixture.db}));
 import { registerWhatsAppWebhook } from '../notifications/whatsapp-webhook';
+import { scheduleAcknowledgmentPayload } from './whatsapp-acknowledgment';
 import { acceptedDelivery } from './whatsapp-delivery-tracking';
 import { getWhatsAppDeliveryReport } from './whatsapp-delivery-report';
 import { schedulesRouter } from './schedules.router';
@@ -25,10 +26,14 @@ describe.skipIf(!enabled)('WhatsApp delivery integration on isolated temporary t
  const now=Math.floor(Date.now()/1000)-10;
  const filter={weekStart:'2026-11-15',limit:32,offset:0};
 
- async function callback(status:string,id=mid,time=now){
-  const body=JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{value:{metadata:{phone_number_id:sender},statuses:[{id,status,timestamp:String(time)}]}}]}]});
-  const signature='sha256='+createHmac('sha256','temporary-app-secret').update(body).digest('hex');
+ const appSecret = 'temporary-app-secret';
+ async function sendCallback(content: { statuses?: unknown[]; messages?: unknown[] }) {
+  const body=JSON.stringify({object:'whatsapp_business_account',entry:[{changes:[{field:'messages',value:{metadata:{phone_number_id:sender},...content}}]}]});
+  const signature='sha256='+createHmac('sha256',appSecret).update(body).digest('hex');
   return fetch(url,{method:'POST',headers:{'content-type':'application/json','x-hub-signature-256':signature},body});
+ }
+ async function callback(status:string,id=mid,time=now){
+  return sendCallback({ statuses:[{id,status,timestamp:String(time)}] });
  }
  beforeAll(async()=>{
   const d=new URL(process.env.DATABASE_URL||'mysql://missing');
@@ -36,7 +41,7 @@ describe.skipIf(!enabled)('WhatsApp delivery integration on isolated temporary t
   connection=await mysql.createConnection({host:d.hostname,port:Number(d.port||4000),user:decodeURIComponent(d.username),password:decodeURIComponent(d.password),database:d.pathname.slice(1),ssl:{rejectUnauthorized:true},timezone:'Z'});
   const statements=[
    `CREATE TEMPORARY TABLE whatsapp_delivery_messages (id INT PRIMARY KEY AUTO_INCREMENT,period_id INT NOT NULL,worker_id INT NOT NULL,kind VARCHAR(20) NOT NULL,work_date DATE NULL,phone_ending VARCHAR(4) NOT NULL,message_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL UNIQUE,state VARCHAR(20) NOT NULL DEFAULT 'pending',error_code VARCHAR(40),error_summary VARCHAR(255),created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,accepted_at TIMESTAMP NULL)`,
-   `CREATE TEMPORARY TABLE whatsapp_delivery_events (event_key VARCHAR(64) PRIMARY KEY,message_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,status VARCHAR(20) NOT NULL,occurred_at TIMESTAMP NOT NULL,error_code VARCHAR(40),created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+   `CREATE TEMPORARY TABLE whatsapp_delivery_events (event_key VARCHAR(64) PRIMARY KEY,message_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,status ENUM('sent','delivered','read','failed','acknowledged') NOT NULL,occurred_at TIMESTAMP NOT NULL,error_code VARCHAR(40),created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
    `CREATE TEMPORARY TABLE whatsapp_delivery_destinations (id INT PRIMARY KEY AUTO_INCREMENT,delivery_id INT NOT NULL,branch_id INT,location_id INT,department_id INT,supervisor_id INT)`,
    `CREATE TEMPORARY TABLE workers (id INT PRIMARY KEY,employeeId VARCHAR(50),nameAr VARCHAR(255))`,
    `CREATE TEMPORARY TABLE schedule_periods (id INT PRIMARY KEY,startDate DATE,endDate DATE)`,
@@ -55,7 +60,7 @@ describe.skipIf(!enabled)('WhatsApp delivery integration on isolated temporary t
   await connection.query(`INSERT INTO users VALUES (700001,'Test supervisor')`);
   await connection.query(`INSERT INTO whatsapp_delivery_messages(id,period_id,worker_id,kind,phone_ending,state) VALUES (700001,700001,700001,'weekly','0001','pending'),(700002,700001,700002,'update','0002','pending')`);
   await connection.query(`INSERT INTO whatsapp_delivery_destinations(delivery_id,branch_id,location_id,department_id,supervisor_id) VALUES (700001,700001,700001,700001,700001),(700002,700001,700001,700001,700001)`);
-  vi.stubEnv('WHATSAPP_META_APP_SECRET','temporary-app-secret');
+  vi.stubEnv('WHATSAPP_META_APP_SECRET',appSecret);
   vi.stubEnv('WHATSAPP_TRIAL_PHONE_NUMBER_ID',sender);
   const app=express();registerWhatsAppWebhook(app);
   server=await new Promise(resolve=>{const instance=app.listen(0,'127.0.0.1',()=>resolve(instance));});
@@ -89,6 +94,20 @@ describe.skipIf(!enabled)('WhatsApp delivery integration on isolated temporary t
   expect(caseCheck.rows[0].status).toBe('sent');
   expect((await getWhatsAppDeliveryReport({...filter,branchId:700001,locationId:700001,departmentId:700001,supervisorId:700001})).total).toBe(2);
   expect((await getWhatsAppDeliveryReport({...filter,branchId:700002})).total).toBe(0);
+
+  const from = '966500000001';
+  const reply = { id:'wamid.FixtureReply_111=', type:'button', from, timestamp:String(now+3), context:{id:mid},
+    button:{payload:scheduleAcknowledgmentPayload(from, appSecret)} };
+  expect((await sendCallback({messages:[reply]})).status).toBe(200);
+  expect((await sendCallback({messages:[reply]})).status).toBe(200);
+  report=await getWhatsAppDeliveryReport({...filter,status:'acknowledged'});
+  expect(report.total).toBe(1);
+  expect(report.totals.acknowledged).toBe(1);
+  expect(report.totals.read).toBe(1);
+  expect(report.rows[0]).toMatchObject({id:700001,status:'read',acknowledgedAt:new Date((now+3)*1000)});
+  expect((await getWhatsAppDeliveryReport({...filter,status:'acknowledged',search:'TEST-ONLY-2'})).total).toBe(0);
+  const [confirmations]:any=await connection.query("SELECT COUNT(*) n FROM whatsapp_delivery_events WHERE status='acknowledged'");
+  expect(Number(confirmations[0].n)).toBe(1);
  },30000);
  it('rejects a supervisor trying to access the global delivery report',async()=>{
   const caller=schedulesRouter.createCaller({user:{id:700002,role:'supervisor',accessScope:null} as any,req:{} as any,res:{} as any});

@@ -5,6 +5,7 @@ vi.mock("./whatsapp-trial-state", () => ({ claimScheduleDelivery: mocks.claim, s
 vi.mock('./whatsapp-delivery-tracking',()=>({beginDelivery:vi.fn().mockResolvedValue(1),acceptedDelivery:vi.fn().mockResolvedValue(undefined),failedDelivery:vi.fn().mockResolvedValue(undefined)}));
 vi.mock("./whatsapp-images", () => ({ renderWeeklySchedulePng: vi.fn(() => Buffer.from("png")), renderScheduleUpdatePng: vi.fn(() => Buffer.from("png")) }));
 import { buildWeeklyTemplateValues, deliverChangedSchedule, sendTrialTemplate, sendTrialUpdate } from "./whatsapp-trial";
+import { scheduleAcknowledgmentPayload } from "./whatsapp-acknowledgment";
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 const target = "966570344919";
@@ -43,6 +44,26 @@ describe("English schedule templates", () => {
     expect(template.name).toBe("wardia_weekly_schedule_image");
     expect(template.components).toHaveLength(1);
     expect(template.components[0].type).toBe("header");
+  });
+  it.each([
+    { configuration: "wardia_weekly_schedule_media_en", expectedName: "wardia_weekly_schedule_media_en" },
+    { configuration: "wardia_weekly_schedule_media_en:wardia_weekly_schedule_media_ack_en", expectedName: "wardia_weekly_schedule_media_ack_en" },
+  ])("sends the approved weekly template $expectedName with a recipient-bound reply button", async ({ configuration, expectedName }) => {
+    configure();
+    const secret = "test-app-secret";
+    vi.stubEnv("WHATSAPP_META_APP_SECRET", secret);
+    vi.stubEnv("WHATSAPP_ACKNOWLEDGMENT_TEMPLATES", configuration);
+    const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ id: "123456" }) }).mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await sendTrialTemplate(target, sample(), options)).toBe(true);
+    const { template } = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(template.name).toBe(expectedName);
+    expect(template.components.map((component: { type: string }) => component.type)).toEqual(["header", "body", "button"]);
+    expect(template.components[1].parameters).toHaveLength(21);
+    expect(template.components[2]).toEqual({
+      type: "button", sub_type: "quick_reply", index: "0",
+      parameters: [{ type: "payload", payload: scheduleAcknowledgmentPayload(target, secret) }],
+    });
   });
   it("sends only five translated parameters for a changed day in text mode", async () => {
     configure();
